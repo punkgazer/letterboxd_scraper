@@ -64,6 +64,11 @@ class Session(requests.Session):
         else:
             raise LoginException(error)
         
+SESSION = Session()
+SESSION()
 
 if __name__ == "__main__":
-    s = Session()
+    # Testing code
+    r = SESSION.get("https://letterboxd.com/films/ajax/popular/decade/2020s/genre/horror/size/small/")
+    soup = bs(r.text, 'lxml')
+    print(soup)
