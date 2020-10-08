@@ -1,17 +1,17 @@
 
-from session import SESSION
+# Imports
 from bs4 import BeautifulSoup as bs
 
+# Local Imports
+from session import SESSION, MAIN_URL
 from film_search import FilmSearch
 
 # NOTE Move this to make it global everywhere
-MAIN_URL = "https://letterboxd.com/"
 
 token = SESSION.cookies['com.xk72.webparts.csrf']
 cookie_params = {'__csrf': token}
 
 def list_maker(film_ids='[{"filmId":"51518"},{"filmId":"99758"}]', publicList=False):
-    # name, film_ids, **kwargs
     
     data = {
         'filmListId': '',
@@ -33,7 +33,9 @@ def list_maker(film_ids='[{"filmId":"51518"},{"filmId":"99758"}]', publicList=Fa
     soup = bs(request.text, 'lxml')
     print(soup)
 
-def film_ids_to_list(film_ids):
+def film_ids_to_string(film_ids):
+    """ Converts a list of film_ids to a valid argument for the entries parameter
+    when creating a list. """
     return str([{"filmId":str(i)} for i in film_ids]) 
 
 
@@ -41,7 +43,7 @@ def film_ids_to_list(film_ids):
 F = FilmSearch()
 film_ids = F()
 
-film_ids = film_ids_to_list(film_ids)
+film_ids = film_ids_to_string(film_ids)
 
 list_maker(film_ids=film_ids)
 

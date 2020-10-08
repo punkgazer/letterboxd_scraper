@@ -9,14 +9,13 @@ import json
 # Local Imports
 from exceptions import LoginException
 
-
 MAIN_URL = "https://letterboxd.com/"
 # Load user details
 with open("data/user_details.json") as jf:
     USER_DETAILS = json.load(jf)
 
 class Session(requests.Session):
-
+    """ Creates a session object that can be used to make requests as the user. """
     def __init__(self):
         super().__init__()
 
@@ -30,10 +29,13 @@ class Session(requests.Session):
 
         # Login Details
         self.logged_in = False
-        self.login_details = USER_DETAILS
+        self.username, self.password = USER_DETAILS['username'], USER_DETAILS['password']
 
     def __str__(self):
         return f"Session (Logged in == {self.logged_in})"
+
+    def __repr__(self):
+        return f"<{type(self).__name__}>\nusername: {self.username}\nlogged_in: {self.logged_in}"
 
     def __call__(self):
         """ Login if not already logged in. """
@@ -45,7 +47,8 @@ class Session(requests.Session):
         
     def __login(self):
         """ Attempt to login to Letterboxd. """
-        request = self.post(MAIN_URL + '/user/login.do', data=dict(self.cookie_params, **self.login_details))
+        login_details = {"username": self.username, "password": self.password}
+        request = self.post(MAIN_URL + '/user/login.do', data=dict(self.cookie_params, **login_details))
         text = bs(request.text, 'lxml').text
         
         result_pattern = r"\"result\": \"(\w+)\""
@@ -60,15 +63,19 @@ class Session(requests.Session):
             # Try to find specific error in HTML
             error = re.findall(error_msg_pattern, text)[0]
         except IndexError:
+            # Could not find specific error
             raise LoginException("Unknown Exception")
         else:
             raise LoginException(error)
-        
+
+
+# Create session object
 SESSION = Session()
+
+# Login to Letterboxd
 SESSION()
+
 
 if __name__ == "__main__":
     # Testing code
     r = SESSION.get("https://letterboxd.com/films/ajax/popular/decade/2020s/genre/horror/size/small/")
-    soup = bs(r.text, 'lxml')
-    print(soup)
