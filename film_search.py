@@ -9,7 +9,7 @@ from session import SESSION, make_soup
 def get_genre_list():
     """ Returns the list of genres you can search by on Letterboxd. """
     films_suburl = "films/"
-    request = SESSION.get(films_suburl)
+    request = SESSION.request("GET", films_suburl)
     soup = make_soup(request)
     return [i.text.lower() for i in soup.find_all('a', attrs={'class': 'item', 'href': re.compile('/films/genre/')})]
 
@@ -56,7 +56,7 @@ class FilmSearch():
         while page_num < pages_to_scrape:
             page_num += 1
             print(f"Attempting to scrape data from page {page_num}")
-            request = SESSION.get(f"{full_url}page/{page_num}/")
+            request = SESSION.request("GET", f"{full_url}page/{page_num}/")
             soup = make_soup(request) 
             film_data += self.get_page_of_films(soup)
 
@@ -83,7 +83,7 @@ class FilmSearch():
     def num_pages(self):
         """ Return the number of pages in the selected search.
         r-type: int """
-        request = SESSION.get(self.full_url)
+        request = SESSION.request("GET", self.full_url)
         soup = make_soup(request)
 
         h2_text = soup.find('h2', class_='ui-block-heading').text

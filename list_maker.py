@@ -1,29 +1,50 @@
 
+# Imports
+import json
+import re
+from tqdm import tqdm
+
 # Local Imports
 from session import SESSION, make_soup, MAIN_URL
 from film_search import FilmSearch
 from film_rating import FilmRating
 from util import replace_dict
-
-import json
+from exceptions import LetterboxdException
+from sentence_maker import SentenceMaker
 
 class LetterboxdList():
     """ A class for creating and modifying a Letterboxd list. """
 
-    class Decorators():
+    save_url = 's/save-list'    
 
-        @classmethod
-        def if_not_soup_return_false(self, func, *args, **kwargs):
-            def inner(self):
-                if not self.soup:
-                    return False
-                return func(*args, **kwargs)
-            return inner
+    def __init__(self, list_name, **kwargs):
+        
+        # Edge cases
+        if (soup := kwargs.get("soup")):
+            self.soup = soup
+        elif not list_name:
+            raise Exception("No name given")
+        else:
+            # Load list
+            self.soup = self.load(list_name)
 
-    save_url = 's/save-list'
+    @classmethod 
+    def new_list(cls, list_name, **kwargs):
+        """ Create a list, given the list's parameters including
+        list name at minimum. 
+        
+        Optional arguments:
+        - description (str)
+        - tags (list)
+        - public (bool)
+        - ranked (bool)
+        - entries (???)
+        """
 
-    default_values = {
-            'list_id': '',
+        if not list_name:
+            raise ValueError("Missing required field: list_name")
+
+        default_values = {
             'tags': [],
             'public': False,
             'ranked': False,
@@ -31,83 +52,101 @@ class LetterboxdList():
             'entries': []
         }
 
-    def __init__(self, *args, **kwargs):
-        
-        # Edge cases
-        if not any([args, kwargs]):
-            raise AttributeError("No attributes passed!")
-        elif all([args, kwargs]):
-            raise AttributeError("You passed both args and kwargs. Please use the latter to create a new list")
-        elif len(args) > 2:
-            raise AttributeError("Invalid number of args. Use all keyword arguments to create a list")
-        
-        elif args:
-            # Prexisting list
-            self.soup = args[0]
-        else:
-            # New list
-            self.__create(kwargs)
+        # Add default values for any missing keys
+        list_data = {i:j if i not in kwargs else kwargs[i] for i,j in default_values.items()}
 
-    def __create(self, list_attributes):
-        """ Create a list, given the list's parameters including
-        list name at minimum. """
-        if not (list_name := list_attributes.pop('list_name')):
-            raise ValueError("Missing required field: list_name")
+        # Add the list_name and id 
+        list_data['list_name'] = list_name
+        list_data['list_id'] = ''
 
-        ## Convert data to post data
-        default = self.default_values
-        attributes = replace_dict(default, list_attributes)
-        attributes['list_name'] = list_name
-        post_data = self.convert_data(attributes)
+        post_data = cls.convert_data(list_data)
 
         ## Create list
-        request = SESSION.post(
-            suburl=self.save_url,
+        request = SESSION.request(
+            "POST", 
+            suburl=cls.save_url,
             headers={'referer': f'{MAIN_URL}list/new/'},
             data=post_data
-        )        
+        )
+        soup = make_soup(request)
 
-        ## Create soup
-        self.soup = make_soup(request)
+        cls.check_valid_soup(soup)
 
-    @classmethod
-    def load(cls, list_name):
+        ## Return instance of LetterboxdList
+        return cls(None, soup=soup)
+
+    def load(self, list_name):
         """ Load an instance for an existing list, given the list name. """
-        ## Get edit URL
-        edit_url = cls.get_edit_url(list_name)
+        
+        unknown_chrs = "|".join(set([c for c in list_name if not any( [c.isalpha(), c.isnumeric()] )]))
+        
+        # Replace characters which do not show in URL links with spaces
+        list_name = re.sub(unknown_chrs, "", list_name)
+
+        # Then replace any excess spaces
+        list_name = re.sub(" +", " ", list_name).strip()
+
+        # Get edit URL
+        edit_url = self.get_edit_url(list_name)
 
         # Set soup
         request = SESSION.get(edit_url)
         soup = make_soup(request)
 
-        return cls(soup)
+        def check_page_found(soup):
+            """ Returns True if page found. """
+            if not (msg := soup.find('section', class_='message')):
+                return True
+            try:
+                msg = msg.find('p').text
+            except:
+                raise Exception("Could not locate page. Raised fallback exception as could not Letterboxd message")
+            else:
+                raise LetterboxdException(str(msg))
+            
+        check_page_found(soup)
+        return soup
 
     @staticmethod
     def get_edit_url(name, username=SESSION.username):
+        """ Returns the suburl that is the list's edit page. """
         return f"{username}/list/{name.lower().replace(' ', '-')}/edit/"
 
+    @property
+    def add_comment_url(self):
+        """ Returns the suburl for adding a comment to a list. """
+        return f's/filmlist:{self.list_id}/add-comment'
+
+    def add_comment(self, comment):
+        """ Adds a comment to the list. """
+        SESSION.request("POST", self.add_comment_url, data={'comment': comment})
+
     def update(self, **kwargs):
+        """ Update a list with new data. """
         data = self.data
 
         # Replace any vars
         for k, v in kwargs.items():
             if k not in data.keys():
                 raise KeyError(f"Unknown key: {k} with value {v}")
+            elif k == "list_id":
+                raise Exception("list_id cannot be modified!")
             data[k] = v
 
         current_attributes = self.data
         updated_attributes = replace_dict(current_attributes, data)
         post_data = self.convert_data(updated_attributes)
 
-        request = SESSION.post(
+        request = SESSION.request(
+            "POST", 
             suburl=self.save_url,
             data=post_data 
         )
 
         ## Update soup
+        soup = make_soup(request)
+        self.check_valid_soup(soup)
         self.soup = make_soup(request)
-
-        self.check_valid_soup(self.soup)
 
     @property
     def data(self):
@@ -124,23 +163,21 @@ class LetterboxdList():
             'entries': self.entries
         }
 
-    def convert_data(self, data):
-        # Convert filmId to str
-        # data['entries'] = [ {k:str(v) if k == "filmId" else v for k,v in i.items()} for i in data['entries'] ]
+    @staticmethod
+    def convert_data(data):
+        """ Converts data to that which can be passed to 
+        save a list. """
+        bool_to_str = lambda x: str(x).lower()
         return {
             'filmListId': str(data['list_id']),
             'name': data['list_name'],
             'tags': '',
             'tag': data['tags'],
-            'publicList': self.bool_to_str(data['public']),
-            'numberedList': self.bool_to_str(data['ranked']),
+            'publicList': bool_to_str(data['public']),
+            'numberedList': bool_to_str(data['ranked']),
             'notes': data['description'],
             'entries': str(data['entries'])
         }
-
-    @staticmethod
-    def bool_to_str(b):
-        return str(b).lower()
 
     @staticmethod
     def check_valid_soup(soup):
@@ -148,41 +185,37 @@ class LetterboxdList():
             response_dict = json.loads(soup.text)
             if not response_dict['result']:
                 raise Exception(response_dict['messages'])
+            else:
+                pass
+                # print(response_dict['result'])
         except:
-            pass
+            raise
 
-    @Decorators.if_not_soup_return_false
     @property
     def list_id(self):
         return int(self.soup.find('input', attrs={'name': 'filmListId'}).get('value'))
 
-    @Decorators.if_not_soup_return_false
     @property
     def list_name(self):
         return self.soup.find('input', attrs={'name': 'name'}).get('value')
 
-    @Decorators.if_not_soup_return_false
     @property
     def description(self):
         description = self.soup.find('textarea', attrs={'name': 'notes'}).text
         return description if description else ''
     
-    @Decorators.if_not_soup_return_false
     @property
     def tags(self):
         return [i.get('value') for i in self.soup.find_all('input', attrs={'name': 'tag'})]
 
-    @Decorators.if_not_soup_return_false
     @property
     def ranked(self):
         return bool(self.soup.find('input', attrs={'id': 'show-item-numbers', 'checked':True}))
-
-    @Decorators.if_not_soup_return_false
+    
     @property
     def public(self):
         return bool(self.soup.find('input', attrs={'id': 'list-is-public', 'checked':True}))
 
-    @Decorators.if_not_soup_return_false
     @property
     def entries(self):
         """ Returns information for each film in the list. """
@@ -207,9 +240,46 @@ class LetterboxdList():
 
 if __name__ == "__main__":
 
-    # test_list = LetterboxdList.load("1890s horror")
-    # test_list.update(list_name="And the description")
+    # search = FilmSearch(year=1945, genre='animation', page_limit=None)
+    # film_data = search()
 
-    test_list2 = LetterboxdList(list_name="test101", description="this is a test creating a list", tags=['horror', 'minecraft'], ranked=True)
-    print(test_list2.data)
+    # final_data = []
+    # for film in tqdm(film_data):
+    #     print(f"\nBefore: {film}")
+    #     fr = FilmRating(film['link'])
+    #     if not fr.is_obscure:
+    #         print("Film is not obsure")
+    #         continue
+    #     elif fr.total_ratings < 5:
+    #         print("Too few ratings")
+    #         continue
+    #     final_data.append(dict(film, **{'review': fr.avg_rating}))
+    #     print(f'Updated {film}')
+
+    # final_data = sorted(final_data, key=lambda film: film['review'], reverse=True)
+
+    # LetterboxdList.new_list(
+    #     list_name="Popular Unpopular",
+    #     description="Test list",
+    #     public=False,
+    #     entries=final_data
+    # )
+
+
+    # test_list = LetterboxdList("Movie Masochism #2!")
+    # test_list.update(list_name="Movie Masochism #2")
+
+    
+    # sm = SentenceMaker("Whale you be a amazing friend. I wish you smashing birthday. P.S. you tattoo super sexy")
+    # results = sm()
+
+    # lucindas_list = LetterboxdList.new_list(
+    #     list_name="LucyTest2",
+    #     description="Testing for Lucy v2",
+    #     public=False,
+    #     entries=results
+    # )
+
+    lucindas_list = LetterboxdList(list_name="LucyTest2")
+    lucindas_list.add_comment("This is a test comment")
 

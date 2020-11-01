@@ -49,17 +49,24 @@ class LetterboxdSession(requests.Session):
             self.__login()
             self.logged_in = True
 
-    def get(self, suburl=None, **kwargs):
-        """ Customise Get Request to default to main Letterboxd url. """
-        full_url = MAIN_URL
-        if suburl: full_url += suburl
-        return super().get(full_url, **kwargs)
+    def request(self, request_type, suburl='', **kwargs):
+        """ Customise Request to default to main Letterboxd url.
+        And to include CSRF token if it's a POST request with data """
 
-    def post(self, suburl=None, data={}, **kwargs):
-        """ Customise the post request to include the cookies. """
-        full_url = MAIN_URL
-        if suburl: full_url += suburl
-        return super().post(full_url, data=dict(self.cookie_params, **data), **kwargs)
+        # Edge case
+        if type(suburl) is not str: raise TypeError("Suburl must be string or empty string")
+
+        # If method is POST, add CSRF token to data passed
+        if request_type == "POST":
+            if not kwargs.get("data"):
+                kwargs['data'] = self.cookie_params
+            else:
+                kwargs['data'] = dict(self.cookie_params, **kwargs['data'])
+
+        # Invoke the Session.request method, passing the MAIN_URL for Letterboxd
+        # by default and appending the suburl on the end. This will also work
+        # if suburl is empty string.
+        return super().request(request_type, f"{MAIN_URL}{suburl}", **kwargs)
 
     @property
     def login_details(self):
@@ -69,7 +76,7 @@ class LetterboxdSession(requests.Session):
     def __set_token(self):
         """ Get the __csrf token and pass its value to an instance variable
         Called by __init__ """
-        self.get()
+        self.request("GET")
         token = self.cookies['com.xk72.webparts.csrf']
         self.cookie_params = {'__csrf': token}
 
@@ -77,7 +84,8 @@ class LetterboxdSession(requests.Session):
         """ Attempt to login to Letterboxd.
         If result is not successful, attempt to return the error
         displayed by the webpage """
-        request = self.post(suburl = "/user/login.do", data = self.login_details)
+
+        request = self.request("POST", suburl="/user/login.do", data=self.login_details)
         soup = make_soup(request)
         text = soup.text
 
@@ -86,6 +94,7 @@ class LetterboxdSession(requests.Session):
 
         if result == "success":
             # Login successful
+            print(f"Login successful! Welcome, {self.username}")
             return True
 
         error_msg_pattern = r"\"messages\": \[([^\]]+)"

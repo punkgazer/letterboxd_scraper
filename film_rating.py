@@ -3,6 +3,8 @@ from session import SESSION, make_soup
 import re
 
 class FilmRating():
+
+
     def __init__(self, film_link):
         self.film_link = film_link
         self.__make_rating_soup()
@@ -11,7 +13,7 @@ class FilmRating():
     def __make_rating_soup(self):
         """ Returns the rating soup for the film, from which ratings can be extracted. """
         suburl = f"csi/film/{self.film_link}/rating-histogram/"
-        request = SESSION.get(suburl)
+        request = SESSION.request("GET", suburl)
         self.rating_soup = make_soup(request)
 
     def __check_if_obscure(self):
@@ -44,10 +46,10 @@ class FilmRating():
         get_quantity = lambda x: int(re.findall(score_count_pattern, x.get('title'))[0].replace(',', '')) if x else 0
         score_quantities = [get_quantity(i) for i in ratings_data]
 
-        return {(score+1)/2: quantity for score, quantity in enumerate(score_quantities)} # {0.5: 44, 1.0: 108... 5.0: 91}
+        return {score+1: quantity for score, quantity in enumerate(score_quantities)} # {0.5: 44, 1.0: 108... 5.0: 91}
 
     @property
-    def total_ratings(self):
+    def total_ratings(self, rating=None):
         """ Returns the total number of ratings. 
         NOTE: this should align with number on the user's profile. Though it is taken from reading
         the histogram data collected from self.ratings
@@ -68,11 +70,11 @@ class FilmRating():
 
 if __name__ == "__main__":
 
-    # my_film = FilmRating('black-swan')
-    # print(my_film.ratings)
-    # print(my_film.total_ratings)
-    # print(my_film.avg_rating)
-    # print(my_film.is_obscure)
+    my_film = FilmRating('black-swan')
+    print(my_film.ratings)
+    print(my_film.total_ratings)
+    print(my_film.avg_rating)
+    print(my_film.is_obscure)
 
     # print(f"\n{'-'*40}\n")
 
