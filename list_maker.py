@@ -18,7 +18,12 @@ class LetterboxdList():
     save_url = 's/save-list'    
 
     def __init__(self, list_name, **kwargs):
-        
+
+        # This may be differnet to the actual list_name
+        # For example if you create two lists (regardless of whether you delete one of them)
+        # that are both called 'horror', the second list will have the url 'horror-1'
+        self.user_defined_list_name = list_name
+
         # Edge cases
         if (soup := kwargs.get("soup")):
             self.soup = soup
@@ -38,7 +43,7 @@ class LetterboxdList():
         - tags (list)
         - public (bool)
         - ranked (bool)
-        - entries (???)
+        - entries (???) # TODO
         """
 
         if not list_name:
@@ -75,10 +80,27 @@ class LetterboxdList():
         ## Return instance of LetterboxdList
         return cls(None, soup=soup)
 
+    @property
+    def formatted_list_name(self):
+        list_name = self.user_defined_list_name.lower()
+        formatted_list_name = list_name.replace(' ', '-')
+        formatted_list_name = formatted_list_name.replace('_', '')
+        unknown_chrs = "|".join(set([c for c in formatted_list_name if not any( [c.isalpha(), c.isnumeric(), '-'] )]))
+        
+        # Replace characters which do not show in URL links with spaces
+        formatted_list_name = re.sub(unknown_chrs, "", formatted_list_name)
+
+        # Then replace any excess spaces
+        formatted_list_name = re.sub(" +", " ", formatted_list_name).strip()
+        return formatted_list_name
+
+
     def load(self, list_name):
         """ Load an instance for an existing list, given the list name. """
         
-        unknown_chrs = "|".join(set([c for c in list_name if not any( [c.isalpha(), c.isnumeric()] )]))
+        list_name = list_name.replace(' ', '-')
+        list_name = list_name.replace('_', '')
+        unknown_chrs = "|".join(set([c for c in list_name if not any( [c.isalpha(), c.isnumeric(), '-'] )]))
         
         # Replace characters which do not show in URL links with spaces
         list_name = re.sub(unknown_chrs, "", list_name)
@@ -112,6 +134,10 @@ class LetterboxdList():
         """ Returns the suburl that is the list's edit page. """
         return f"{username}/list/{name.lower().replace(' ', '-')}/edit/"
 
+    @staticmethod
+    def get_view_url(name, username=SESSION.username):
+        return f"{username}/list/{name.lower().replace(' ', '-')}/"
+
     @property
     def add_comment_url(self):
         """ Returns the suburl for adding a comment to a list. """
@@ -123,6 +149,9 @@ class LetterboxdList():
 
     def update(self, **kwargs):
         """ Update a list with new data. """
+        if 'list_name' in kwargs:
+            self.original_name = kwargs.pop('list_name')
+        
         data = self.data
 
         # Replace any vars
@@ -148,6 +177,42 @@ class LetterboxdList():
         self.check_valid_soup(soup)
         self.soup = make_soup(request)
 
+    def update_entries(self, entries, show_changes=False):
+
+        if entries == self.entries:
+            print("These entries are identical to the current list!")
+            return
+
+        if show_changes:
+
+            extract_ids = lambda entries: [e['filmId'] for e in entries] 
+            existing, new = set(extract_ids(self.entries)), set(extract_ids(entries))
+
+            removed = existing - new
+            added = new - existing
+
+            film_names = self.get_film_names()
+            removed_films = [film_names[_id] for _id in removed]
+            added_films = get_names_of_entries(added).values()
+
+            bolden = lambda x: f"<strong>{x}</strong>"
+            comment = ''
+
+            if removed_films:
+                comment += f"{bolden('Removed')}:"
+                comment += ''.join([f"\n- {v}" for v in removed_films])
+                comment += "\n\n"
+
+            if added_films:
+                comment += f"{bolden('Added')}:"
+                comment += ''.join([f"\n- {v}" for v in added_films])
+
+            # Ensure no trailing whitespace
+            comment = comment.strip()
+            self.add_comment(comment)
+
+        self.update(entries=entries)
+
     @property
     def data(self):
         """ Convert instance attributes into a dict that can be passed to update a list. """
@@ -155,7 +220,7 @@ class LetterboxdList():
             raise Exception("Cannot get data")
         return {
             'list_id': self.list_id,
-            'list_name': self.list_name,
+            'list_name': self.formatted_list_name,
             'tags': self.tags,
             'public': self.public,
             'ranked': self.ranked,
@@ -236,6 +301,52 @@ class LetterboxdList():
         list_items = self.soup.find_all('li', class_='film-list-entry')
         entries = [get_film_data(film) for film in list_items]
         return entries
+    
+    def get_film_names(self):
+        """ Returns each id in the film list together with the corresponding film_name. """
+
+        view_url = self.get_view_url(self.formatted_list_name)
+        request = SESSION.request("GET", view_url)
+        soup = make_soup(request)
+
+        ul = soup.find('ul', class_='film-list')
+        if not ul:
+            return {}
+        # {id: film_name}
+        return {int(li.find('div').get('data-film-id')): li.find('img').get('alt') for li in ul.find_all('li')}
+
+def get_names_of_entries(film_ids):
+    """ Creates or edits a list used by the program which 
+    is then used by this function to determine the names which
+    correspond to the given ids. """
+
+    temp_list_name = "__TEMPLIST"
+    
+    ## Try to ensure correct format of data
+    # If not list of dicts, change list into dicts
+    if not all([type(x) is dict for x in film_ids]):
+        if not all(type(x) is int for x in film_ids):
+            raise TypeError(f"Invalid input: {film_ids}. Expected list of dicts or list.")
+        film_ids = [{'filmId': film_id} for film_id in film_ids]  
+
+    try:
+        temp_list = LetterboxdList(list_name=temp_list_name)
+    except:
+        try:
+            temp_list = LetterboxdList.new_list(
+                list_name=temp_list_name, 
+                description="Please do not delete me!",
+                public=False,
+                entries=film_ids
+                )
+        except:
+            raise Exception("Could not load or create list")
+    else:
+        temp_list.update_entries(entries=film_ids, show_changes=False)
+
+    film_names = temp_list.get_film_names()
+    return film_names
+
 
 
 if __name__ == "__main__":
@@ -280,6 +391,28 @@ if __name__ == "__main__":
     #     entries=results
     # )
 
-    lucindas_list = LetterboxdList(list_name="LucyTest2")
-    lucindas_list.add_comment("This is a test comment")
+    # lucindas_list = LetterboxdList(list_name="LucyTest2")
+    # print(lucindas_list.get_film_names())
+    # # lucindas_list.update_entries(
+    # #     [{'filmId': 160163}, {'filmId': 36145}, {'filmId': 51553}, {'filmId': 45163}])
+
+    # test_list = LetterboxdList(list_name="And the hamster")
+
+    # test_list.update_entries(
+    #     entries = [{"filmId": 36145}, {"filmId": 160163}, {"filmId": 293076}]
+    # )
+
+    # temp_list_name = "__TEMPLIST"
+    film_ids = [{"filmId": 36145}, {"filmId": 160163}]
+    film_ids2 = [{"filmId": 190201}, {"filmId": 258924}]
+    # t = LetterboxdList(list_name=temp_list_name)
+    # t.update_entries(entries=film_ids2)
+
+    # f = FilmSearch(genre="horror", decade=1910, page_limit=2)
+    # films = f()
+
+    test_list = LetterboxdList("__TEMPLIST")
+    test_list.update_entries(entries=film_ids2, show_changes=True)
+
+
 
