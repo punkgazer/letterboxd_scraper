@@ -2,20 +2,21 @@
 """ For creating the requests.Session() object that is used to make requests
 to letterboxd.com """
 
-# Local Imports
+## Local Imports
 from exceptions import LoginException
 
-# Imports
+## Imports
 import re
 import json
 import requests
-from bs4 import Beautifulsoup as bs
+from bs4 import BeautifulSoup as bs
 
-
-# Global vars
+## Global vars
 FN_USER_DETAILS = "data/user_details.json"
 FN_USER_AGENT = "data/user_agent.json" 
 
+
+## File Loading
 # Get user details from file
 with open(FN_USER_DETAILS) as jf:
     USER_DETAILS = json.load(jf)
@@ -23,6 +24,7 @@ with open(FN_USER_DETAILS) as jf:
 # Get user agent
 with open(FN_USER_AGENT) as jf:
     USER_AGENT = json.load(jf)
+
 
 def make_soup(request):
     """ Converts a request object into a beautifulsoup object for webscraping. """
@@ -33,6 +35,7 @@ class Session(requests.Session):
     """ The Session class for creating a SESSION object. 
     Only one instance needs to be created. """
 
+    # Main URL of the website
     MAIN_URL = "https://letterboxd.com"
     
     def __init__(self):
@@ -135,3 +138,6 @@ SESSION = Session()
 
 # Login
 SESSION()
+
+
+SESSION.request("GET", "film/black-swan")
