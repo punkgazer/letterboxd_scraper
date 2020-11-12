@@ -1,70 +1,57 @@
+""" For creating the requests.Session() that is used to make requests as a user. """
 
-""" For creating the requests.Session() object that is used to make requests
-to letterboxd.com """
-
-## Local Imports
-from exceptions import LoginException
-
-## Imports
-import re
-import json
+# Imports
 import requests
 from bs4 import BeautifulSoup as bs
+import re
+import json
+import pendulum
 
-## Global vars
-FN_USER_DETAILS = "data/user_details.json"
-FN_USER_AGENT = "data/user_agent.json" 
+# Local Imports
+from exceptions import LoginException
+import util
 
 
-## File Loading
-# Get user details from file
-with open(FN_USER_DETAILS) as jf:
-    USER_DETAILS = json.load(jf)
-
-# Get user agent
-with open(FN_USER_AGENT) as jf:
-    USER_AGENT = json.load(jf)
-
+USER_DETAILS = util.load_json_data("user_details")
+USER_AGENT = util.load_json_data("user_agent")
 
 def make_soup(request):
-    """ Converts a request object into a beautifulsoup object for webscraping. """
     return bs(request.text, 'lxml')
 
+class LetterboxdSession(requests.Session):
+    """ Creates a session object that can be used to create requests as a user. """
 
-class Session(requests.Session):
-    """ The Session class for creating a SESSION object. 
-    Only one instance needs to be created. """
+    MAIN_URL = "https://letterboxd.com/"
 
-    # Main URL of the website
-    MAIN_URL = "https://letterboxd.com"
-    
     def __init__(self):
         super().__init__()
 
-        ## Add User Agent
+        # Add User Agent
         self.headers.update(USER_AGENT)
 
-        ## Set CSRF Token
-        # A necessesary component in making post requests to Letterboxd
+        # Set CSRF token
         token = self.__get_token()
         self.cookie_params = {'__csrf': token}
 
-        ## Login details
+        # Login details
         self.logged_in = False
         self.username = USER_DETAILS['username']
         self.password = USER_DETAILS['password']
 
+        ## Other
+        self.year_range = (1860, pendulum.now()._end_of_decade())
+        self.genre_list = self.__get_genre_list()
+
+    def __str__(self):
+        return f"Session (Logged in == {self.logged_in})"
+
     def __repr__(self):
-        """ Example: < Session  Username: ..... > """
-        cls_name = self.__class__.__name__
-        string = f"\tUsername: {self.username}"
-        string += f"\tLogged In: {self.logged_in}"
-        return f"< {cls_name}\n{string} >"
+        return f"<{type(self).__name__}>\nusername: {self.username}\nlogged_in: {self.logged_in}"
 
     def __call__(self):
-        """ Logs into Letterboxd if not already logged in. """
+        """ Login to Letterboxd if not already. """
         if self.logged_in:
-            print("Already logged in.")
+            print("Already logged in")
         else:
             self.__login()
             self.logged_in = True
@@ -74,8 +61,7 @@ class Session(requests.Session):
         And to include CSRF token if it's a POST request with data """
 
         # Edge case
-        if not isinstance(suburl, str): 
-            raise TypeError("Suburl must be string or empty string")
+        if type(suburl) is not str: raise TypeError("Suburl must be string or empty string")
 
         # If method is POST, add CSRF token to data passed
         if request_type == "POST":
@@ -89,29 +75,27 @@ class Session(requests.Session):
         # if suburl is empty string.
         return super().request(request_type, f"{self.MAIN_URL}{suburl}", **kwargs)
 
-    def __get_token(self):
-        """ Get the __csrf token using a standard GET request 
-        Called by __init__. """
-        self.request("GET")
-        token = self.cookies['com.xk72.webparts.csrf']
-        return token
-
     @property
     def login_details(self):
         """ Convert username and password to dict for passing it as data to a request. """
         return {"username": self.username, "password": self.password}
+
+    def __get_token(self):
+        """ Get the __csrf token and pass its value to an instance variable
+        Called by __init__ """
+        self.request("GET")
+        token = self.cookies['com.xk72.webparts.csrf']
+        return token
 
     def __login(self):
         """ Attempt to login to Letterboxd.
         If result is not successful, attempt to return the error
         displayed by the webpage """
 
-        # Make request to login form
         request = self.request("POST", suburl="/user/login.do", data=self.login_details)
         soup = make_soup(request)
         text = soup.text
 
-        # Grab the result of the request from the HTML
         result_pattern = r"\"result\": \"(\w+)\""
         result = re.findall(result_pattern, text)[0]
 
@@ -120,9 +104,7 @@ class Session(requests.Session):
             print(f"Login successful! Welcome, {self.username}")
             return True
 
-        # Pattern for getting messages in the event of the result being unsuccessful
         error_msg_pattern = r"\"messages\": \[([^\]]+)"
-
         try:
             # Try to find specific error in HTML
             error = re.findall(error_msg_pattern, text)[0]
@@ -132,12 +114,20 @@ class Session(requests.Session):
         else:
             raise LoginException(error)
 
+    def __get_genre_list(self):
+        """ Returns the list of genres you can search by on Letterboxd. """
+        request = self.request("GET", "films/")
+        soup = make_soup(request)
+        return [i.text.lower() for i in soup.find_all('a', attrs={'class': 'item', 'href': re.compile('/films/genre/')})]
 
-# Create Sesion
-SESSION = Session()
+
+# Create Session
+SESSION = LetterboxdSession()
 
 # Login
 SESSION()
 
+SESSION.request("GET", "film/black-swan/")
 
-SESSION.request("GET", "film/black-swan")
+
+
