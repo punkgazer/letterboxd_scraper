@@ -17,10 +17,11 @@ import pendulum
 # Debugging
 import logging
 
-# BUG fix: pass the formatted_name into make post_data as an argument to avoid name change to formatted_name
 # BUG: can change name of list but this messes up soup. The list updates, but properties of the instance do not update
     # because the load() method fails when called
 # TODO move comments to LetterboxdList with the exception of delete_comment() method
+# TODO maybe move data to LetterboxdList as it's sometimes convenient to get all info about list at once
+# TODO add get_film_names() code
 
 
 class LetterboxdList():
@@ -691,6 +692,7 @@ class MyList(LetterboxdList):
 
         # Make post request to delete comment
         SESSION.request("POST", suburl=delete_comment_url)
+
 
 if __name__ == "__main__":
 

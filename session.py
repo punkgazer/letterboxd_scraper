@@ -137,5 +137,3 @@ if __name__ == "__main__":
     # SESSION.request("GET", "film/black-swan/")
 
     SESSION.request("GET", "film/thisojaifasfj/")
-
-

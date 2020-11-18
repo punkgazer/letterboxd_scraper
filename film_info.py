@@ -163,14 +163,3 @@ if __name__ == "__main__":
         print(test.name)
         print(test.get_avg_rating())
 
-
-
-
-    
-    
-
-
-
-
-    
-

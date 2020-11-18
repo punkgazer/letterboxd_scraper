@@ -62,10 +62,3 @@ def merge_entries(*args):
 
     unique_film_ids = set([i['filmId'] for i in results])
     return [{"filmId": x} for x in unique_film_ids]
-    
-if __name__ == "__main__":
-    x = merge_entries(
-        [{'filmId': 200, 'a': 5}, {'filmId': 201}, {'filmId': 204}],
-        [{'filmId': 120}, {'filmId': 125}, {'filmId': 204}]
-    )
-    print(x)

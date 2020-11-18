@@ -107,3 +107,4 @@ if __name__ == "__main__":
 
     F = FilmSearch(decade=1910, genre='horror', page_limit=None)
     data = F()
+    
