@@ -1,24 +1,29 @@
 """ Module for getting information about a film given its url. """
 
 # Import
-import json
 import re
+import json
 
-# Local imports
+# Local Imports
 from session import SESSION, make_soup
 
 
 class FilmInfo():
-    """ Class for getting information about a given film. """
-    
+    """ For getting information about a given film on Letterboxd. """
+
     def __init__(self, film_path):
+        """
+        Parameters:
+        - film_path (str) - the path to the film on Letterboxd.
+            e.g. black-swan
+        """
         self.path = film_path
 
         # Film page
         self.page_wrapper = self.__get_info_soup()
-        self.__get_film_data()
+        self.__get_film_info()
 
-        # Ratings are stored on a separate page,
+        # Ratings are stored on a separate page
         # So a second request is necessesary
         self.rating_soup = self.__get_rating_soup()
 
@@ -30,20 +35,44 @@ class FilmInfo():
 
     @property
     def suburl(self):
-        """ Returns the suburl for this film.
-        Used for making the request to get the information
-        for information on the film listed below. """
+        """ Returns the suburl for this film
+        Used for making the request to get film info. """
         return f"film/{self.path}/"
 
+    ## Soup getters
+
     def __get_info_soup(self):
+        """ Go the main film_page and grab the soup. 
+        r-type: BeautifulSoup"""
         request = SESSION.request("GET", self.suburl)
         soup = make_soup(request)
         page_wrapper = soup.find('div', id='film-page-wrapper')
         return page_wrapper
 
-    def __get_film_data(self):
-        
-        ## Info
+    def __get_rating_soup(self):
+        """ The film's rating info is loaded from a different page
+        Hence we make the request to this separate page to get it
+        r-type: BeautifulSoup """
+        suburl = f"csi/film/{self.path}/rating-histogram/"
+        request = SESSION.request("GET", suburl)
+        return make_soup(request)
+
+    ## Info getters
+
+    def __get_film_info(self):
+        """ Grab the information available from the main page.
+        - id
+        - name
+        - release year
+        - poster_url
+        - language
+        - country
+        - genre(s)
+
+        r-type: None
+        All information is set to instance variables
+        """
+        # Info
         info = self.page_wrapper.find('div', class_='film-poster')
         self.id_ = info.get('data-film-id')
         self.name = info.get('data-film-name')
@@ -70,22 +99,7 @@ class FilmInfo():
         film_length = re.findall(r"([\d,]+)", text)[0]
         return int(film_length)
 
-    ## --- Rating Code ---
-
-    def __get_rating_soup(self):
-        """ Returns the rating soup for the film, from which ratings can be extracted. """
-        suburl = f"csi/film/{self.path}/rating-histogram/"
-        request = SESSION.request("GET", suburl)
-        return make_soup(request)
-
-    @property
-    def is_obscure(self):
-        """ Checks the ratings soup to ensure that the film does not have enough ratings
-        to be given a standard rating - otherwise creating an instance of this class
-        is pointless because grabbing the standard rating would be easier. """
-        if not self.ratings:
-            return True
-        return bool(self.rating_soup.find('a', title=re.compile("Not enough ratings")))
+    ## Rating getters
 
     @property
     def ratings(self):
@@ -110,36 +124,53 @@ class FilmInfo():
 
         return {score+1: quantity for score, quantity in enumerate(score_quantities)} # {0.5: 44, 1.0: 108... 5.0: 91}
 
-    @property
-    def total_ratings(self, rating=None):
+    def get_total_ratings(self, rating=None):
         """ Returns the total number of ratings. 
         NOTE: this should align with number on the user's profile. Though it is taken from reading
         the histogram data collected from self.ratings
+
+        Parameters:
+        - rating (int) - e.g. 4 -> returns count of ratings that are 2/5 aka 4/10
         r-type: int """
         if not self.ratings:
             return 0
-        return sum(self.ratings.values())
+        elif not rating:
+            return sum(self.ratings.values())
+        return self.ratings[rating]
 
-    @property
-    def avg_rating(self, round_to=2):
+    def get_avg_rating(self, round_to=2):
         """ Computes the average of the ratings collected in self.ratings.
         r-type: float """
         if not self.ratings:
             return None
-        pre_rounded_score = sum([s*q for s,q in self.ratings.items()])/self.total_ratings
+        pre_rounded_score = sum([s*q for s,q in self.ratings.items()])/self.get_total_ratings()
         return round(pre_rounded_score, round_to)
 
+    @property
+    def is_obscure(self):
+        """ Checks the ratings soup to ensure that the film does not have enough ratings
+        to be given a standard rating - otherwise creating an instance of this class
+        is pointless because grabbing the standard rating would be easier. """
+        if not self.ratings:
+            return True
+        return bool(self.rating_soup.find('a', title=re.compile("Not enough ratings")))
 
+    
 if __name__ == "__main__":
 
     for film in ['black-swan', 'coherence', 'triangle', 'shrek', 'citizen-kane']:
         test = FilmInfo(film)
         print(test.name)
-        print(test.avg_rating)
+        print(test.get_avg_rating())
+
+
+
 
     
-
     
 
 
+
+
+    
 

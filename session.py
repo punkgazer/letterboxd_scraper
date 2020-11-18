@@ -1,22 +1,23 @@
-""" For creating the requests.Session() that is used to make requests as a user. """
+""" For creating the requests.Session() that is used to make requests as the user. """
 
 # Imports
 import requests
 from bs4 import BeautifulSoup as bs
 import re
-import json
 import pendulum
 
 # Local Imports
-from exceptions import LoginException
 import util
+from exceptions import LoginException
 
 
 USER_DETAILS = util.load_json_data("user_details")
 USER_AGENT = util.load_json_data("user_agent")
 
 def make_soup(request):
+    """ Convert a request into a BeautifulSoup object. """
     return bs(request.text, 'lxml')
+
 
 class LetterboxdSession(requests.Session):
     """ Creates a session object that can be used to create requests as a user. """
@@ -39,7 +40,7 @@ class LetterboxdSession(requests.Session):
         self.password = USER_DETAILS['password']
 
         ## Other
-        self.year_range = (1860, pendulum.now()._end_of_decade())
+        self.year_range = (1860, pendulum.now()._start_of_decade().year+10)
         self.genre_list = self.__get_genre_list()
 
     def __str__(self):
@@ -56,24 +57,27 @@ class LetterboxdSession(requests.Session):
             self.__login()
             self.logged_in = True
 
-    def request(self, request_type, suburl='', **kwargs):
-        """ Customise Request to default to main Letterboxd url.
-        And to include CSRF token if it's a POST request with data """
-
-        # Edge case
-        if type(suburl) is not str: raise TypeError("Suburl must be string or empty string")
-
-        # If method is POST, add CSRF token to data passed
-        if request_type == "POST":
+    def request(self, method, suburl='', **kwargs):
+        """ 
+        ** Overloading **
+        Customise request to default to main Letterboxd url.
+        And to include the __CSRF token if it's a POST request. 
+        """
+        if method == "POST":
             if not kwargs.get("data"):
                 kwargs['data'] = self.cookie_params
             else:
                 kwargs['data'] = dict(self.cookie_params, **kwargs['data'])
 
-        # Invoke the Session.request method, passing the MAIN_URL for Letterboxd
-        # by default and appending the suburl on the end. This will also work
-        # if suburl is empty string.
-        return super().request(request_type, f"{self.MAIN_URL}{suburl}", **kwargs)
+        response =  super().request(
+            method,
+            url=f"{self.MAIN_URL}{suburl}",
+            **kwargs
+        )
+        
+        if not response.ok:
+            response.raise_for_status()
+        return response
 
     @property
     def login_details(self):
@@ -81,8 +85,8 @@ class LetterboxdSession(requests.Session):
         return {"username": self.username, "password": self.password}
 
     def __get_token(self):
-        """ Get the __csrf token and pass its value to an instance variable
-        Called by __init__ """
+        """ Get the __csrf token and pass its value to an instance variable.
+        Called by __init__. """
         self.request("GET")
         token = self.cookies['com.xk72.webparts.csrf']
         return token
@@ -127,7 +131,11 @@ SESSION = LetterboxdSession()
 # Login
 SESSION()
 
-SESSION.request("GET", "film/black-swan/")
 
+if __name__ == "__main__":
+    # Test code
+    # SESSION.request("GET", "film/black-swan/")
+
+    SESSION.request("GET", "film/thisojaifasfj/")
 
 
