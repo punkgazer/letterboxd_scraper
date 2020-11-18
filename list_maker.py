@@ -696,6 +696,8 @@ class MyList(LetterboxdList):
 
 if __name__ == "__main__":
 
+    ## Testing code
+
     # test_list = LetterboxdList("Hooptober 2020!", "thegarfofficial")
     # test_list2 = LetterboxdList("top 100", "jameshealey")
 
@@ -717,8 +719,3 @@ if __name__ == "__main__":
 
     # test_list.merge(movie_m1, movie_m2)
     test_list.replace(hooptober)
-
-
-
-
-    

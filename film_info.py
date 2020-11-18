@@ -162,4 +162,3 @@ if __name__ == "__main__":
         test = FilmInfo(film)
         print(test.name)
         print(test.get_avg_rating())
-
