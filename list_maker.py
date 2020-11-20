@@ -14,14 +14,12 @@ from exceptions import LetterboxdException
 
 import pendulum
 
-# Debugging
-import logging
-
 # BUG: can change name of list but this messes up soup. The list updates, but properties of the instance do not update
     # because the load() method fails when called
 # TODO move comments to LetterboxdList with the exception of delete_comment() method
 # TODO maybe move data to LetterboxdList as it's sometimes convenient to get all info about list at once
 # TODO add get_film_names() code
+# TODO edit list to sort by x (e.g. film release date)
 
 
 class LetterboxdList():
@@ -39,11 +37,10 @@ class LetterboxdList():
             raise TypeError(f"name must be valid non-empty str, not {name}")
 
         if username == SESSION.username and self.__class__.__name__ == "LetterboxdList":
-            logging.warning("You should use MyList for your own lists, if you want to be able to edit them")
+            raise Exception("You should use MyList for your own lists!")
 
         # The user_defined_name is the original name passed to the instance, as opposed to the one grabbed from the property
         self.user_defined_name = name
-        
         self.load(username)
 
     def __repr__(self):
@@ -98,6 +95,21 @@ class LetterboxdList():
     ** List Attributes **
     """
     @property
+    def _id(self):
+        """ Returns the list_id
+        NOTE: the list_id cannot be set; it is assigned upon creation of the list. 
+        r-type: int
+        """
+        list_id_string = self.soup.select_one("div[id*=report]").get('id') # *= means: contains
+        pattern = r"-(\d+)$"
+        try:
+            match = int(re.findall(pattern, list_id_string)[0])
+        except IndexError:
+            raise Exception("Could not get id")
+        else:
+            return match
+
+    @property
     def username(self):
         """ Returns the username of the person who owns the list.
         r-type: str 
@@ -149,6 +161,93 @@ class LetterboxdList():
 
         # Convert list to entries dict
         return [{"filmId": i.get('data-film-id')} for i in entry_list_items]
+
+    """
+    ** Comment Manipulation **
+    """
+
+    @property
+    def add_comment_url(self):
+        """ Returns the suburl for adding a comment to a list. """
+        return f's/filmlist:{self._id}/add-comment'
+    
+    @property
+    def comment_soup(self):
+        """ Returns the soup containing information about the list's existing comments."""
+        response = SESSION.request(
+            "GET", f"csi/list/{self._id}/comments-section/?", 
+            params={'esiAllowUser': True}
+            )
+        soup = make_soup(response)
+        return soup
+
+    @property
+    def comments(self):
+        """ Returns a dictionary of comments on the list. 
+        Example: [{'username': 'LostInStyle', 'comment': 'Hello World', 'date_created':2020-11-15}]
+        """
+        body = self.comment_soup.find('div', class_='body')
+        valid_comments = [i for i in body.find_all('li', attrs={'data-person': True})]
+        
+        if not valid_comments:
+            return None
+
+        def get_comment_text(suburl):
+            """ Returns the body of the comment. """
+            response = SESSION.request("GET", suburl)
+            return make_soup(response).get_text()
+
+        def convert_timestamp(timestamp):
+            """ Convert the timestamp 'data-creation-timestamp' into a valid pendulum timestamp. """
+            return pendulum.from_timestamp(timestamp)
+
+        comments = [
+            {
+            'id': int(i['id'].split('-')[1]),
+            'username': i['data-person'],
+            'date_created': convert_timestamp( int(i['data-creation-timestamp'][:-3]) ),
+            'comment': get_comment_text(i.find('div', class_='comment-body').get('data-full-text-url')),
+            }
+            for i in valid_comments]
+        return comments
+
+    @property
+    def num_comments(self):
+        # BUG: does not work!
+        """ Returns the number of comments a list has received, not included any that have been removed. """
+        if not self.comments:
+            return 0
+        data_comments_link = f"/{self.username.lower()}/list/{self.formatted_name}/#comments"
+        num_comments_text = self.comment_soup.find('h2', attrs={'data-comments-link': data_comments_link}).text.strip()
+        pattern = r"^\d+"
+        try:
+            match = re.findall(pattern, num_comments_text)[0]
+        except IndexError:
+            return 0
+        else:
+            return int(match)
+
+    def add_comment(self, comment):
+        """ Adds a comment to the list. """
+        SESSION.request("POST", self.add_comment_url, data={'comment': comment})
+
+    def delete_comment(self, comment_id):
+        """ Deletes a comment on a list, given that comment's id. """
+        # Edge cases
+        if not (comments := self.comments):
+            raise Exception("No comments to delete!")
+        if type(comment_id) not in (str, int):
+            raise TypeError(f"Invalid type for comment_id: {type(comment_id)}. Should be int")
+        if isinstance(comment_id, str):
+            comment_id = int(comment_id)
+
+        if comment_id not in [i['id'] for i in comments]:
+            raise Exception(f"Unable to locate id: {comment_id}")
+
+        delete_comment_url = f"ajax/filmListComment:{comment_id}/delete-comment/"
+
+        # Make post request to delete comment
+        SESSION.request("POST", suburl=delete_comment_url)
 
 
 class MyList(LetterboxdList):
@@ -456,14 +555,6 @@ class MyList(LetterboxdList):
     ** List Attributes **
     """
     @property
-    def _id(self):
-        """ Returns the list_id
-        NOTE: the list_id cannot be set; it is assigned upon creation of the list. 
-        r-type: int
-        """
-        return int(self.soup.find('input', attrs={'name': 'filmListId'}).get('value'))
-
-    @property
     def public(self):
         """ Returns a bool value based on if the list is public.
         r-type: bool """
@@ -478,10 +569,18 @@ class MyList(LetterboxdList):
     Whereas LetterboxdList makes use of the list view, 
     MyList makes use of the edit list view. 
     
-    The reason for this change is that you (obviously) cannot edit someone else's list
-    And the edit page makes things cleaner whilst also allowing more information to be grabbed
-    Specifically the public/private status of the list, and the list-id, as defined above
+    Initially I considered the edit-list view to be superior.
+    The information is more easily grabbed. However, it is possible to grab every necessesary attribute
+    using the view-list soup alone (with the exception of the public status of the list)
     """ 
+    @property
+    def _id(self):
+        """ Returns the list_id
+        NOTE: the list_id cannot be set; it is assigned upon creation of the list. 
+        r-type: int
+        """
+        return int(self.soup.find('input', attrs={'name': 'filmListId'}).get('value'))
+
     @property
     def username(self):
         return self.soup.find('body', class_='lists-edit').get('data-owner')
@@ -605,93 +704,15 @@ class MyList(LetterboxdList):
         self.update_list(description=text)
 
     """
-    ** Comment Manipulation **
+    ** Overloading comments methods 
     """
-
-    @property
-    def add_comment_url(self):
-        """ Returns the suburl for adding a comment to a list. """
-        return f's/filmlist:{self._id}/add-comment'
-    
-    @property
-    def comment_soup(self):
-        """ Returns the soup containing information about the list's existing comments."""
-        response = SESSION.request(
-            "GET", f"csi/list/{self._id}/comments-section/?", 
-            params={'esiAllowUser': True}
-            )
-        soup = make_soup(response)
-        return soup
-
-    @property
-    def comments(self):
-        """ Returns a dictionary of comments on the list. 
-        Example: [{'username': 'LostInStyle', 'comment': 'Hello World', 'date_created':2020-11-15}]
-        """
-        body = self.comment_soup.find('div', class_='body')
-        valid_comments = [i for i in body.find_all('li', attrs={'data-person': True})]
-        
-        if not valid_comments:
-            return None
-
-        def get_comment_text(suburl):
-            """ Returns the body of the comment. """
-            response = SESSION.request("GET", suburl)
-            return make_soup(response).get_text()
-
-        def convert_timestamp(timestamp):
-            """ Convert the timestamp 'data-creation-timestamp' into a valid pendulum timestamp. """
-            return pendulum.from_timestamp(timestamp)
-
-        comments = [
-            {
-            'id': int(i['id'].split('-')[1]),
-            'username': i['data-person'],
-            'date_created': convert_timestamp( int(i['data-creation-timestamp'][:-3]) ),
-            'comment': get_comment_text(i.find('div', class_='comment-body').get('data-full-text-url')),
-            }
-            for i in valid_comments]
-        return comments
-
-    @property
-    def num_comments(self):
-        # BUG: does not work!
-        """ Returns the number of comments a list has received, not included any that have been removed. """
-        if not self.comments:
-            return 0
-        data_comments_link = f"/{self.username.lower()}/list/{self.formatted_name}/#comments"
-        num_comments_text = self.comment_soup.find('h2', attrs={'data-comments-link': data_comments_link}).text.strip()
-        pattern = r"^\d+"
-        try:
-            match = re.findall(pattern, num_comments_text)[0]
-        except IndexError:
-            return 0
-        else:
-            return int(match)
-
     def add_comment(self, comment):
-        """ Adds a comment to the list. """
+        """ Checks against the edge case to ensure that list is public,
+        before calling regular parent method to add the passed comment to the list 
+        """
         if not self.public:
             raise LetterboxdException("Cannot add comment to private list!")
-        SESSION.request("POST", self.add_comment_url, data={'comment': comment})
-
-    def delete_comment(self, comment_id):
-        """ Deletes a comment on a list, given that comment's id. """
-        # Edge cases
-        if not (comments := self.comments):
-            raise Exception("No comments to delete!")
-        if type(comment_id) not in (str, int):
-            raise TypeError(f"Invalid type for comment_id: {type(comment_id)}. Should be int")
-        if isinstance(comment_id, str):
-            comment_id = int(comment_id)
-
-        if comment_id not in [i['id'] for i in comments]:
-            raise Exception(f"Unable to locate id: {comment_id}")
-
-        delete_comment_url = f"ajax/filmListComment:{comment_id}/delete-comment/"
-
-        # Make post request to delete comment
-        SESSION.request("POST", suburl=delete_comment_url)
+        super().add_comment(comment)
 
 
 if __name__ == "__main__":
@@ -712,10 +733,14 @@ if __name__ == "__main__":
     # print(test_list.entries)
 
     test_list = MyList("test003")
-    hooptober = LetterboxdList("Hooptober 2020!", "thegarfofficial")
+    # hooptober = LetterboxdList("Hooptober 2020!", "thegarfofficial")
+    steve_quick = LetterboxdList("Michael Adams' 20 Worst Films", "stevequick")
+
+
+
     # movie_m1 = MyList("Movie Masochism #1 (Complete)")
     # movie_m2 = MyList("movie-masochism #2")
     # anti_lb = MyList("Anti-Letterboxd 250 Ranked")
 
     # test_list.merge(movie_m1, movie_m2)
-    test_list.replace(hooptober)
+    # test_list.replace(hooptober)

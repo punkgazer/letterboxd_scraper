@@ -39,9 +39,14 @@ class LetterboxdSession(requests.Session):
         self.username = USER_DETAILS['username']
         self.password = USER_DETAILS['password']
 
-        ## Other
+        ## Search Options & Available filters
+        response = self.request("GET", f"{self.username}/films/")
+        self.__search_options = make_soup(response)
+
         self.year_range = (1860, pendulum.now()._start_of_decade().year+10)
         self.genre_list = self.__get_genre_list()
+        self.service_list = self.__get_service_list()
+        self.filters_dict = self.__get_filters_dict()
 
     def __str__(self):
         return f"Session (Logged in == {self.logged_in})"
@@ -96,8 +101,8 @@ class LetterboxdSession(requests.Session):
         If result is not successful, attempt to return the error
         displayed by the webpage """
 
-        request = self.request("POST", suburl="/user/login.do", data=self.login_details)
-        soup = make_soup(request)
+        response = self.request("POST", suburl="/user/login.do", data=self.login_details)
+        soup = make_soup(response)
         text = soup.text
 
         result_pattern = r"\"result\": \"(\w+)\""
@@ -120,9 +125,24 @@ class LetterboxdSession(requests.Session):
 
     def __get_genre_list(self):
         """ Returns the list of genres you can search by on Letterboxd. """
-        request = self.request("GET", "films/")
-        soup = make_soup(request)
-        return [i.text.lower() for i in soup.find_all('a', attrs={'class': 'item', 'href': re.compile('/films/genre/')})]
+        return [i.text.lower() for i in self.__search_options.find_all('a', attrs={'class': 'item', 'href': re.compile('/films/genre/')})]
+
+    def __get_service_list(self):
+        """ Returns a list of services you can search by on Letterboxd.
+        NOTE: I think these may be specific to the user. 
+        The code should still work since this is scraped using the user's session. """
+        return [i.text.strip() for i in self.__search_options.find('ul', id='services-menu').find_all('a')]
+
+    def __get_filters_dict(self):
+        """ Returns a list of the filters that can be applied to the session
+        (e.g. hide-reviewed)
+        """
+        filter_li_tags = self.__search_options.find_all('li', class_='js-film-filter')
+        data_categories = set([i.get('data-category') for i in filter_li_tags])
+        filters = {i:[] for i in data_categories}
+        [filters[i.get('data-category')].append(i.get('data-type')) for i in filter_li_tags]
+        return filters
+
 
 
 # Create Session
@@ -136,4 +156,5 @@ if __name__ == "__main__":
     # Test code
     # SESSION.request("GET", "film/black-swan/")
 
-    SESSION.request("GET", "film/thisojaifasfj/")
+    # SESSION.request("GET", "film/thisojaifasfj/")
+    print(SESSION.filters_dict)
