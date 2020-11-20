@@ -166,7 +166,6 @@ class LetterboxdList():
     """
     ** Comment Manipulation **
     """
-
     @property
     def add_comment_url(self):
         """ Returns the suburl for adding a comment to a list. """
@@ -317,7 +316,6 @@ class MyList(LetterboxdList):
     """
     ** Alternative Constructors **
     """
-
     @classmethod
     def new_list(cls, name, **kwargs):
         """ 
@@ -496,8 +494,6 @@ class MyList(LetterboxdList):
         other = util.merge_lists([i.entries for i in args])
         merged_others = self.__merge_entries(other, keep_notes=False)
         self.update_list(entries=merged_others)
-
-    # BUG: Problem I have now is that notes will be deleted for original list
 
     def merge(self, *args):
         """ A, B -> A + B """
