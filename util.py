@@ -1,47 +1,68 @@
+""" 
+    Miscellaneous functions. 
+"""
 
-# Local imports
-import re
+import json
+
+# Lists with common applications
+yes_list = ['y', 'yes', 'yeah', 'confirm']
+no_list = ['n', 'no', 'back', 'cancel']
+quit_list = ['q', 'quit', 'exit', 'quit()', 'exit()', 'cls']
+
+def load_json_data(file_name):
+    """ Loads the data from a json file, returns it.
+    r-type: dict 
+    """
+    with open(f"data/{file_name}.json") as jf:
+        content = json.load(jf)
+    return content
+
+def yn(msg=None):
+    """ While user's response is not in no/yes list, keeps prompting
+    if in yes_list -> True
+    elif in no_list -> False. """
+    pre_string = "y/n:\n> "
+    string = f"{msg} {pre_string}" if msg else pre_string
+    while True:
+        user_response = input(string)
+        if user_response in quit_list:
+            quit()
+        elif user_response in yes_list:
+            return True
+        elif user_response in no_list:
+            return False
+        print("Sorry, I didn't understand your response!")
 
 def replace_dict(a, b):
+    """ Replace the values of keys in A, where those keys 
+    also appears in B. """
     changed_keys = set(a.keys()) & set(b.keys())
     return {k:v if k not in changed_keys else b[k] for k,v in a.items()}
 
-def remove_full_stops(string):
-    """ Removes full stops from a sentence IF they are NOT part of an acronym. """
-
-    full_stop = '.'
-    char_list = list(string)
+def merge_lists(*args):
+    """ Merge two or more lists together. """
+    # Edge cases
+    if not all([isinstance(i, list) for i in args]):
+        raise TypeError("All arguments must be lists")
     
-    chars_deleted = 0
-    for i, char in enumerate(string):
-        if char != full_stop:
-            continue
-        
-        # Allow full stop at beginning of string 
-        if i in range(0,2):
-            continue
-        
-        # If the character two previous was also a full stop
-        # Then this is likely an acronym - allow
-        if char_list[i-2] == full_stop or (i not in range(len(string)-2, len(string)) and string[i+2] == full_stop):
-            continue
-
-        # Otherwise remove the full stop from the char_list
-        else:
-            del char_list[i-chars_deleted]
-            chars_deleted += 1
-
-    # Convert the char_list back to a string and return
-    return ''.join(char_list)
-
-def merge_lists(lists):
-    if type(lists) != list or any([type(i) is not list for i in lists]):
-        raise TypeError("Must be list of lists")
-    new_list = []
-    while lists:
-        [new_list.append(i) for i in lists.pop()]
-    return new_list
+    if not args:
+        raise Exception(f"No arguments provided")
+    elif len(args) == 1:
+        return args[0]
     
+    result = []
+    [[result.append(i) for i in j] for j in args]
+    return result
 
-        
+def merge_entries(*args):
+    # Edge cases
+    if not all([isinstance(i, list) for i in args]):
+        raise TypeError("All arguments must be lists")
+    if not args:
+        raise Exception("No arguments provided")
 
+    results = []
+    [[results.append( {k:v for k,v in entry.items() if k=="filmId"} ) for entry in entries] for entries in args]
+
+    unique_film_ids = set([i['filmId'] for i in results])
+    return [{"filmId": x} for x in unique_film_ids]

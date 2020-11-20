@@ -1,10 +1,15 @@
+""" 
+    Find users who've rated a film a particular rating.
+    If a film has received a lot of ratings, this may not work for middle-of-the-pack ratings (e.g. 4/10),
+    due to how Letterboxd only allows a maximum of 10 pages when sorting either from highest to lowest or vice versa. 
+"""
 
 # Imports
 import re
 
 # Local imports
 from session import SESSION, make_soup
-from film_rating import FilmRating
+from film_info import FilmInfo
 
 
 class FilmRaters():
@@ -30,7 +35,7 @@ class FilmRaters():
 
         ## Get information about the film's overall rating and ratings spread
         try:
-            film_ratings = FilmRating(self.film).ratings
+            film_ratings = FilmInfo(self.film).ratings
             self.film_ratings = [v for k,v in sorted(film_ratings.items())]
         except:
             raise Exception("Failed to obtain film data for film:", self.film)
@@ -52,10 +57,8 @@ class FilmRaters():
         """ Determines the method (in a non-pythonic sense) by which
         to sort the request url in order to make sure all results 
         can be obtained.
-
         It will return the appropriate suburl, whether it be
         a regular or reverese (starting from the lowest rating) search.
-
         In addition, it will return the page number at which
         the rating starts. """
 
@@ -150,7 +153,4 @@ class FilmRaters():
 if __name__ == "__main__":
 
     F = FilmRaters("the-exorcist-iii")
-    print(F())
-
-
-
+    print(F(target_rating=2))
