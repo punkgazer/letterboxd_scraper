@@ -1,22 +1,20 @@
-""" For searching for films by genre and decade/year. """
+""" 
+    For searching for films by genre and decade/year. 
+"""
 
 # Imports
 import re
 
+# Debugging
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
 # Local Imports
 from session import SESSION, make_soup
 
-def get_genre_list():
-    """ Returns the list of genres you can search by on Letterboxd. """
-    films_suburl = "films/"
-    request = SESSION.request("GET", films_suburl)
-    soup = make_soup(request)
-    return [i.text.lower() for i in soup.find_all('a', attrs={'class': 'item', 'href': re.compile('/films/genre/')})]
-
-GENRE_LIST = get_genre_list()
-
-
 class FilmSearch():
+    """ Search for all the films (unless a page limit is specificed) for
+    a given year, genre, or both. """
 
     def __init__(self, genre=None, decade=None, year=None, page_limit=None):
 
@@ -26,11 +24,11 @@ class FilmSearch():
         # Ensure valid data
         if year and decade:
             raise Exception("You cannot search by both decade and year!")  
-        if year and year not in range(1860, 2030):
+        if year and year not in range(SESSION.year_range):
             raise ValueError(f"Invalid year: {year}")
-        if decade and decade not in range(1860, 2030, 10):
+        if decade and decade not in range(*SESSION.year_range, 10):
             raise ValueError(f"Invalid decade: {decade}")
-        if genre and genre not in GENRE_LIST:
+        if genre and genre not in SESSION.genre_list:
             raise ValueError(f"Inavlid genre: {genre}")
 
         # Convert decade to string for making requests
@@ -45,37 +43,43 @@ class FilmSearch():
         """ Return film data as a list of dicts, each dict containing 'id' and 'link'
         r-type: list of dicts """
         page_num = 0
-        full_url = self.full_url
+        suburl = self.suburl
         film_data = []
 
         # Identify stopping point for while loop
         pages_to_scrape = self.num_pages if not self.page_limit else min(self.num_pages, self.page_limit)
 
-        print(f"Scraping data\nGenre: {self.genre}\nDecade: {self.decade}\nYear: {self.year}\n Pages {pages_to_scrape}")
-        # Commence scraping
+        logging.debug(f"Scraping data\nGenre: {self.genre}\nDecade: {self.decade}\nYear: {self.year}\n Pages {pages_to_scrape}")
+        
+        ## Commence scraping
         while page_num < pages_to_scrape:
             page_num += 1
-            print(f"Attempting to scrape data from page {page_num}")
-            request = SESSION.request("GET", f"{full_url}page/{page_num}/")
+            logging.debug(f"Attempting to scrape data from page {page_num}")
+            request = SESSION.request("GET", f"{suburl}page/{page_num}/")
             soup = make_soup(request) 
             film_data += self.get_page_of_films(soup)
 
         return film_data
 
     @property
-    def full_url(self):
-        """ Construct a full URL given the arguments passed to the init function.
+    def suburl(self):
+        """ Construct a full suburl given the arguments passed to the init function.
         NOTE that letterboxd does not make use of URL parameters, so 
         the URL has to be constructed in this ugly manner.
         r-type: str
         """
         initial = "films/ajax/popular/"
+
+        ## Add Years
         if self.year: 
             initial += f"year/{self.year}/"
         elif self.decade:
             initial += f"decade/{self.decade}/"
+
+        ## Add Genres
         if self.genre: initial += f"genre/{self.genre}/"
 
+        ## Finalise suburl
         final = initial + "size/small/"
         return final
 
@@ -83,7 +87,7 @@ class FilmSearch():
     def num_pages(self):
         """ Return the number of pages in the selected search.
         r-type: int """
-        request = SESSION.request("GET", self.full_url)
+        request = SESSION.request("GET", self.suburl)
         soup = make_soup(request)
 
         h2_text = soup.find('h2', class_='ui-block-heading').text
@@ -105,5 +109,4 @@ if __name__ == "__main__":
 
     F = FilmSearch(decade=1910, genre='horror', page_limit=None)
     data = F()
-
-
+    
