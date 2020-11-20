@@ -12,7 +12,7 @@ Disclaimer that the following have far from extensively been tested.
 - Get the following or followers of a given user
 - Traverse the watched page of a given user in order to get the film_ids
     for a given set of criteria, or the entire watchlist
-- Get the users who've rated a given film x/10 (some limitations)
+- Given a film, get a list of users who've rated it x/10 (some limitations)
 
 ### Films
 - Get attributes of individual film (e.g. year, rating)
