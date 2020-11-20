@@ -273,40 +273,6 @@ class MyList(LetterboxdList):
     # For saving any list when modifying it
     save_url = 's/save-list'
 
-    class MyListDecorators():
-        """ Innerclass for Decorators relating to MyList """
-        
-        @classmethod
-        def ensure_is_LBlist(self, func): # Decorator arguments
-            def wrapper(self, *args): # Wrapper arguments
-                """ 
-                :: Decorator ::                
-                Checks that the arguments passed are Letterboxd Lists before passing them
-                to the function. This avoids minor repetition. 
-                This decorator is utilised by methods in this class that are concerned with
-                modifying the MyList instance.
-                """
-                # Deal with edge cases
-                if not args:
-                    raise Exception("No lists given!")
-                elif not all([i.__class__.__name__ in ("LetterboxdList", "MyList") for i in args]):
-                    raise TypeError("Invalid type for item within args. Expected all to be LetterboxdList or Mylist")
-                # Argument types are correct
-                 
-                # Get only the film_ids for i.entries for in in args
-                args = [[{k:v for k,v in j.items() if k=="filmId"} for j in i.entries] for i in args]
-                # Merge them together into a single list
-                other_film_ids = util.merge_lists(*args)
-
-                # Ensure unique list items
-                duplicates = [i['filmId'] for i in other_film_ids]
-                other_film_ids_final = [i for i in other_film_ids if duplicates.count(i['filmId']) == 1]
-
-                # Call the function with the merged entries passed as the argument
-                result = func(self, other_film_ids_final)
-                return result
-            return wrapper
-
     def __init__(self, name):
         super().__init__(name, username=SESSION.username)
 
