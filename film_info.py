@@ -1,4 +1,6 @@
-""" Module for getting information about a film given its url. """
+""" 
+    Module for getting information about a film given its url. 
+"""
 
 # Import
 import re

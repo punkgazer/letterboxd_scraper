@@ -1,4 +1,6 @@
-""" Custom-made Exceptions for the program. """
+""" 
+    Custom-made Exceptions for the program. 
+"""
 
 class LoginException(Exception):
     """ Raises if incorrect credentials given for login. """

@@ -2,7 +2,7 @@
     This module mimics the behaviour of a user browsing through someone's watched films.
     
     You can get the film_ids a user has watched.
-    From this, you can use the (TODO) get_film_names() function to get the name of these films.
+    You could also then use the (TODO) get_film_names() function to get the name of these films.
     
     You can also search by criteria (e.g. films released in 2007 that the user rated 4*)
 """
@@ -20,7 +20,7 @@ class Watched():
 
     default_search = {
         'username': SESSION.username,
-        'search_for': '',
+        'rated_only': False,
         'year': None,
         'genre': None,
         'service': None,
@@ -30,6 +30,7 @@ class Watched():
 
     def __init__(self, username=SESSION.username):
         """
+        Creates an object associated with a particular Letterboxd username.
         Keyword Arguments:
 
         username(str):
@@ -48,13 +49,7 @@ class Watched():
 
         Keyword Arguments:
 
-            search_for(str): 
-                What do you want to search for?
-                Options :-
-                - Watched
-                - Ratings
-                - Diary
-                - Reviews
+            rated_only(bool)
 
             year(str or None):
                 Options :-
@@ -94,8 +89,8 @@ class Watched():
 
             filters(list):
                 Constraints :-
-                - must be in filters_list
-                Options :-
+                - must be in SESSION's filters_dict
+                Options :- (updated: 2020-11-20)
                 - show-liked OR hide-liked
                 - show-logged OR hide-logged
                 - show-reviewed OR hide-reviewed
@@ -116,7 +111,7 @@ class Watched():
 
         # Set cookie according to filters
         requests_jar = requests.cookies.RequestsCookieJar()
-        requests_jar.set('filmfilter', filters)
+        requests_jar.set('filmFilter', filters)
 
         # Get the suburl for request
         suburl = self.build_suburl(**kwargs)
@@ -155,30 +150,20 @@ class Watched():
 
         # Get parts of suburl
         username_str = (lambda x: f"{x}/")(ns.username)
-        search_str = self.get_search_str(ns.search_for)
+        rated_only_str = 'rating/' if ns.rated_only else ''
         year_str = self.get_year_str(ns.year)
         genre_str = self.get_genre_str(ns.genre)
         service_str = self.get_service_str(ns.service)
         rating_str = self.get_rating_str(ns.rating)
-        sort_by_str = (lambda x: f"by/{x}/" if x else '')(ns.sort_by)
+        sort_by_str = (lambda x: f"by/{x}/" if x else '')(ns.rated_only)
 
         # Create full suburl
-        suburl = f"{username_str}films/{search_str}{rating_str}{year_str}{genre_str}{service_str}{sort_by_str}"
+        suburl = f"{username_str}films/{rated_only_str}{rating_str}{year_str}{genre_str}{service_str}{sort_by_str}"
         return suburl
 
     """
     ** Methods for getting suburl parts for WatchedList search. **
     """
-    @staticmethod
-    def get_search_str(search):
-        """ Converts a search_by to a section of the URL.
-        r-type: """
-        if search == "watched" or not search:
-            return ''
-        elif search not in ('diary', 'review', 'ratings'):
-            raise Exception(f"Invalid search_for: {search}")
-        return f"{search}/"
-
     @staticmethod
     def get_year_str(year):
         """ Converts a year to a section of the URL.
@@ -282,5 +267,9 @@ class Watched():
 
 if __name__ == "__main__":
     watched = Watched()
-    results = watched(search_for="ratings", rating=1.0, filters=("hide-liked", "show-reviewed", "hide-shorts"))
-    print(results)
+    watched(
+        username="lucindaj",
+        filters=["show-reviewed"]
+        )
+    # results = watched(search_for="ratings", rating=1.0, filters=("hide-liked", "show-reviewed", "hide-shorts"))
+    # print(results)

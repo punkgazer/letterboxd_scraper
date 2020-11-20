@@ -1,4 +1,6 @@
-""" For searching for films by genre and decade/year. """
+""" 
+    For searching for films by genre and decade/year. 
+"""
 
 # Imports
 import re

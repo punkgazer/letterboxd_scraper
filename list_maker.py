@@ -1,7 +1,7 @@
 """ 
-For working with Letterboxd lists. 
-    - LetterboxdList (general class for lists on Letterboxd)
-    - MyList (subclass for lists owned by the user)
+    For working with Letterboxd lists. 
+        - LetterboxdList (general class for lists on Letterboxd)
+        - MyList (subclass for lists owned by the user)
 """
 
 # Imports

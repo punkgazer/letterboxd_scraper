@@ -1,4 +1,6 @@
-""" For creating the requests.Session() that is used to make requests as the user. """
+""" 
+    For creating the requests.Session() that is used to make requests as the user. 
+"""
 
 # Imports
 import requests

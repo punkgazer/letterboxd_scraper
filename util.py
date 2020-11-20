@@ -1,3 +1,7 @@
+""" 
+    Miscellaneous functions. 
+"""
+
 import json
 
 # Lists with common applications
