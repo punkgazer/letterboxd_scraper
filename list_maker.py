@@ -16,6 +16,8 @@ import pendulum
 
 # BUG: can change name of list but this messes up soup. The list updates, but properties of the instance do not update
     # because the load() method fails when called
+    # NOTE: I think I fixed this # TODO double check
+
 # TODO move comments to LetterboxdList with the exception of delete_comment() method
 # TODO maybe move data to LetterboxdList as it's sometimes convenient to get all info about list at once
 # TODO add get_film_names() code
