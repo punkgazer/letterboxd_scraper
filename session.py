@@ -159,4 +159,7 @@ if __name__ == "__main__":
     # SESSION.request("GET", "film/black-swan/")
 
     # SESSION.request("GET", "film/thisojaifasfj/")
-    print(SESSION.filters_dict)
+    # print(SESSION.filters_dict)
+
+    response = SESSION.request("GET", "lostinstyle/list/test003/")
+    soup = make_soup(response)

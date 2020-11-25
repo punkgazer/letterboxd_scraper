@@ -2,25 +2,29 @@
     For working with Letterboxd lists. 
         - LetterboxdList (general class for lists on Letterboxd)
         - MyList (subclass for lists owned by the user)
+
+    NOTE: throughout this module, the word 'entries' 
+    is used to refer to films within a list. 
 """
 
 # Imports
 import re
+import pendulum
 
 # Local Imports
 from session import SESSION, make_soup
 import util
 from exceptions import LetterboxdException
 
-import pendulum
 
-# BUG: can change name of list but this messes up soup. The list updates, but properties of the instance do not update
-    # because the load() method fails when called
-    # NOTE: I think I fixed this # TODO double check
-
-# TODO maybe move data to LetterboxdList as it's sometimes convenient to get all info about list at once
-# TODO add get_film_names() code
 # TODO edit list to sort by x (e.g. film release date)
+
+# BUG forward/back(?) slashes in name result in 404 not found
+
+## TODO __show_changes()
+    # BUG: prints out duplicates in comment (not sure why - ids are sets. Possibly multiple films with same name?)
+    # TODO: print links to films rather than just names
+    # TODO: order films alphabetically
 
 
 class LetterboxdList():
@@ -45,8 +49,9 @@ class LetterboxdList():
         self.load(username)
 
     def __repr__(self):
+        """ TODO write out format """
         cls_name = self.__class__.__name__
-        return f"{cls_name}\n\tUsername: {self.username}\n\tName: {self.name} ({self.formatted_name})"
+        return f"{cls_name}\n\tUsername: {self.username}\n\tName: {self.name} ({self.get_formatted_name()})"
 
     def __str__(self):
         return f"{self.name}, a Letterboxd List from {self.username}"
@@ -57,17 +62,15 @@ class LetterboxdList():
             return 0
         return len(self.entries)
         
-    @property
-    def formatted_name(self):
+    def get_formatted_name(self):
         """ Produces a formatted_name based on self.name
         The formatted_name is the expected url for the list. 
         r-type: str """
         list_name = self.user_defined_name.lower()
         formatted_name = list_name.replace(' ', '-')
-        formatted_name = formatted_name.replace('_', '')
 
         # Get a set of unique characters which will not make up url for list page
-        unknown_chrs = set([c for c in formatted_name if not any( [c.isalpha(), c.isnumeric(), c=='-'] )])
+        unknown_chrs = set([c for c in formatted_name if not any( [c.isalpha(), c.isnumeric(), c in ('-', '_')] )])
         # Make sure parenthesis are proceeded by a backslash, to avoid unmatched parenthesis error
         unknown_chrs = "|".join([i if i not in ("(", ")") else f"\{i}" for i in unknown_chrs])
         
@@ -80,7 +83,7 @@ class LetterboxdList():
 
     def load(self, username):
         """ load an instance for an existing list, given its name. """
-        list_name = self.formatted_name
+        list_name = self.get_formatted_name()
         view_list = f"{username}/list/{list_name}/"
 
         # Make request to list url on Letterboxd
@@ -88,9 +91,30 @@ class LetterboxdList():
         soup = make_soup(response)
         self.soup = soup
 
+    """
+    ** Misc. **
+    """
     @property
     def view_list(self):
-        return f"{self.username}/list/{self.name}"
+        return f"{self.username}/list/{self.get_formatted_name()}/"
+
+    @property
+    def data(self):
+        """ Creates a dictionary of list attributes using the instance's properties
+        grabbed from the soup. """
+        try:
+            data_dict = {
+                'list_id': self._id,
+                'name': self.name,
+                'tags': self.tags,
+                'ranked': self.ranked,
+                'description': self.description,
+                'entries': self.entries
+            }
+        except Exception as e:
+            raise Exception(f"Could not get data\n{e}")
+        else:
+            return data_dict
 
     """
     ** List Attributes **
@@ -130,7 +154,10 @@ class LetterboxdList():
         """ Returns the list of tags the list has.
         If the list has no tags, returns the empty list.
         r-type: list. """
-        tags_list = self.soup.find('ul', class_='tags').find_all('li')
+        if not (tags_ul := self.soup.find('ul', class_='tags')):
+            # The tags list could not be found - there are no tags
+            return []
+        tags_list = tags_ul.find_all('li')
         return [i.text.strip() for i in tags_list]
 
     @property
@@ -159,9 +186,8 @@ class LetterboxdList():
 
         entry_list_items = self.soup.find('ul', class_='poster-list').find_all('div')
 
-
         # Convert list to entries dict
-        return [{"filmId": i.get('data-film-id')} for i in entry_list_items]
+        return [{"filmId": int(i.get('data-film-id'))} for i in entry_list_items]
 
     """
     ** Comment Manipulation **
@@ -217,7 +243,7 @@ class LetterboxdList():
         """ Returns the number of comments a list has received, not included any that have been removed. """
         if not self.comments:
             return 0
-        data_comments_link = f"/{self.username.lower()}/list/{self.formatted_name}/#comments"
+        data_comments_link = f"/{self.username.lower()}/list/{self.get_formatted_name()}/#comments"
         num_comments_text = self.comment_soup.find('h2', attrs={'data-comments-link': data_comments_link}).text.strip()
         pattern = r"^\d+"
         try:
@@ -249,6 +275,46 @@ class LetterboxdList():
         # Make post request to delete comment
         SESSION.request("POST", suburl=delete_comment_url)
 
+    """
+    ** Film names **
+    """
+    def get_page_of_film_names(self, page_num):
+        """ Returns a dictionary 
+            key: film_id
+            value: film_name
+        for all the films on that page of the list. 
+            
+        Example: {film_id: film_name}
+        """
+        response = SESSION.request("GET", f"{self.view_list}page/{page_num}/")
+        soup = make_soup(response)
+
+        ul = soup.find('ul', class_='film-list')
+        page_results = {int(li.find('div').get('data-film-id')): li.find('img').get('alt') for li in ul.find_all('li')} 
+        return page_results
+
+    def get_film_names(self):
+        """ Returns each id in the film list together with the corresponding film_name. """
+
+        response = SESSION.request("GET", self.view_list)
+        soup = make_soup(response)
+
+        if not ( page_navigator := soup.find('div', class_='pagination') ):
+            last_page = 1
+        else:
+            last_page = int(page_navigator.find_all('li', class_='paginate-page')[-1].find('a').text)
+
+        current_page = 1
+        results = {}
+        while current_page <= last_page:
+            page_results = self.get_page_of_film_names(current_page)
+            if not page_results:
+                break
+            results.update(page_results)
+            current_page += 1
+
+        return results
+
 
 class MyList(LetterboxdList):
     """ Subclass for Letterboxd Lists owned by the user.
@@ -257,39 +323,42 @@ class MyList(LetterboxdList):
         use the new_list() constructor
     Otherwise, MyList expects list_name to already exist
 
+    # TODO Copy List Constructor
+
     # Create
     # Delete
     # Edit
         # Set individual attribute (e.g. description)
         # Change multiple attributes (e.g. description, tags)
-        # Add entries - add together two or more list entries
-        # Subtract entries - remove entries from one list if part of one or more other lists.
-        # Duplicate entries given a list
+        # Merge entries (add entries to a list)
+        # Diff (subtract entries from a list)
         # Merge entries given two or more lists
         # Clear entries
+    # Comment
+        # Add
+        # Delete
     """
-
-    # For saving any list when modifying it
+    
+    # This url is used when making the request to make changes to a list
     save_url = 's/save-list'
 
     def __init__(self, name):
+        """ Initialise using the parent __init__ method,
+        but pass the username as the session's username (hence, MyList). """
         super().__init__(name, username=SESSION.username)
 
     def load(self, *args):
         """ Overload of load from parent class.
         Uses the edit view rather than standard list view. """
-        list_name = self.formatted_name
+        list_name = self.get_formatted_name()
         edit_url = f"{SESSION.username}/list/{list_name}/edit"
         request = SESSION.request("GET", edit_url)
         soup = make_soup(request)
         self.soup = soup
 
-    def __len__(self):
-        """ Return the number of films in the list. """
-        if not self.entries:
-            return 0
-        return len(self.entries)
-
+    """
+    ** Misc **
+    """
     @staticmethod
     def make_post_data(data):
         """ Converts data to a dictionary that can be passed directly
@@ -312,14 +381,39 @@ class MyList(LetterboxdList):
             'notes': data['description'],
             'entries': str(data['entries'])
         }
-    
+
+    @property
+    def suburl_delete(self):
+        """ The suburl used to make a request to delete a list. """
+        return f"{self.username}/list/{self.get_formatted_name()}/delete/"
+
+    @property
+    def data(self):
+        """ Creates a dictionary of list attributes using the instance's properties
+        grabbed from the soup. """
+        try:
+            data_dict = {
+                'list_id': self._id,
+                'name': self.name,
+                'tags': self.tags,
+                'public': self.public,
+                'ranked': self.ranked,
+                'description': self.description,
+                'entries': self.entries
+            }
+        except Exception as e:
+            raise Exception(f"Could not get data\n{e}")
+        else:
+            return data_dict
+
     """
     ** Alternative Constructors **
     """
     @classmethod
-    def new_list(cls, name, **kwargs):
-        """ 
+    def new(cls, name, **kwargs):
+        """
         :: Alternative Constructor ::
+
         Creates a new list, as opposed to initialising this class
         regularly, which expects the name passed to already exist as a list on Letterboxd.
         This method makes a request first to create the list
@@ -336,12 +430,12 @@ class MyList(LetterboxdList):
             - entries (list of dicts) - films in the list and any notes about them
         """ 
 
-        # Edge case - list name passed is not of type string
+        # Edge case - list name passed is not type string
         if not name or not isinstance(name, str):
-            raise ValueError(f"list_name must be valid non-empty string, not {name}")
+            raise TypeError(f"name must be non-empty string, not {name}")
 
-        # Default values for the list which will be used in the event
-        # that they were not passed explicitly in kwargs
+        # Default values for the list which will be used
+        # in the event that the corresponding keyword arguments are not provided
         default_values = {
             'tags': [],
             'public': False,
@@ -364,55 +458,53 @@ class MyList(LetterboxdList):
         post_data = cls.make_post_data(list_data)
 
         ## Create list
-        response = SESSION.request(
+        SESSION.request(
             "POST",
             suburl=cls.save_url,
             data=post_data 
         )
 
-        if not response.ok:
-            raise response.status_code
-        
+        # Since the list has been created, creating an instance should now work
+        # the same way that it would with any existing list
         return cls(name)
 
-    """
-    ** Misc **
-    """
-    @property
-    def suburl_delete(self):
-        """ The suburl used to make a request to delete a list. """
-        return f"{self.username}/list/{self.formatted_name}/delete/"
+    @classmethod
+    def copy(cls, name, other):
+        """ 
+        :: Alternative Constructor ::
 
-    @property
-    def data(self):
-        """ Creates a dictionary of list attributes using the instance's properties
-        grabbed from the soup. """
-        try:
-            data_dict = {
-                'list_id': self._id,
-                'name': self.name,
-                'tags': self.tags,
-                'public': self.public,
-                'ranked': self.ranked,
-                'description': self.description,
-                'entries': self.entries
-            }
-        except Exception as e:
-            raise Exception(f"Could not get data\n{e}")
-        else:
-            return data_dict
+        Given the name you want for the copied list,
+        and another list from which the entries can be extracted,
+        Returns the new resulting list.
+
+        Example:
+        If you passed 'turtles' fav_films list, this method would
+        return a new list called turtles, with the same films in it
+        as the fav_films list.
+
+        Actions:
+        Calls the other alternative constructor to create a new list
+        with a new name, but the existing entries of the given, existing list.
+
+        Parameters:
+        - name (str) - the name of the new copy list
+        - other (LetterboxdList or MyList) - a LBList object from which the entries
+            can be extracted to this new list.
+        """
+        if not other.__class__.__name__ in ("MyList", "LetterboxdList"):
+            raise TypeError("Other must be a LetterboxdList or MyList object to copy from")
+        return cls.new(name, entries=other.entries)
 
     """
     ** List Manipulation **
     """
-    @staticmethod
-    def __merge_entries(entries_lists, keep_notes=True):
+    def __merge_entries(self, *entries_lists, keep_notes=True):
         """ Given a nested list in the form
         [Lblist.entries, Lblist.entries, Lblist.entries, ...]
         Return the result of merging each list, keeping only filmId key, value pairs. """
         # Edge cases
         if not all( [isinstance(i, list) for i in entries_lists] ):
-            raise TypeError("All arguments must be lists")
+            raise TypeError(f"All arguments must be lists, not {entries_lists}")
         if not entries_lists:
             raise Exception("No arguments provided")
 
@@ -420,6 +512,7 @@ class MyList(LetterboxdList):
         
         if keep_notes:
             [[results.append(entry) for entry in entries] for entries in entries_lists]
+            # must be a list of lists still somehow
 
             unique_film_ids = set([i['filmId'] for i in results])
             unique_results = []
@@ -442,77 +535,147 @@ class MyList(LetterboxdList):
 
         return unique_results
 
-    def delete_list(self):
-        """ Deletes the list from Letterboxd. This cannot be undone! """
+    def __show_changes(self, new_entries):
+        """ Records the changes to a list in terms of film entries, by adding a comment
+        just before making the change, that says which films were removed and/or added.
+        
+        Parameters:
+            new (list of dicts) - an entries list
+
+        Actions:
+            Comments about changes to list entries just before making the change
+        """
+
+        if not self.public:
+            raise Exception("Cannot show changes on private list")
+
+        print(f"Showing changes for {self.name}...")
+
+        extract_ids = lambda entries: set([e['filmId'] for e in entries]) if entries else set()
+
+        ## Get only the film ids so that items can be compared w/out notes
+        new = extract_ids(new_entries)
+        old = extract_ids(self.entries)
+
+        ## If there are no changes, just return
+        if set(new) == set(old):
+            print("No changes")
+            return
+
+        ## Get the ids of the films to be added/removed
+        added_ids = new - old
+        removed_ids = old - new
+
+        ## Get the respective names
+        added_names = get_film_names(added_ids).values()
+
+        current_film_names = self.get_film_names()
+        removed_names = [current_film_names[k] for k in removed_ids]
+
+        bolden = lambda x: f"<strong>{x}</strong>"
+        comment = ''
+
+        ## NOTE that since we have already returned in case of identical entries,
+        # There will be either added or removed films, so the comment should never be empty
+
+        # Add removed films to comment string
+        if removed_ids:
+            comment += f"{bolden('Removed')}:"
+            comment += ''.join([f"\n- {v}" for v in removed_names])
+            comment += "\n\n"
+
+        # Add added films to comment string
+        if added_ids:
+            comment += f"{bolden('Added')}:"
+            comment += ''.join([f"\n- {v}" for v in added_names])
+
+        # Ensure no trailing whitespace
+        comment = comment.strip()
+
+        # Edge case
+        if not comment:
+            raise Exception("Could not get comment!")
+        else:
+            # Add comment
+            self.add_comment(comment)
+
+    def delete(self):
+        """ Deletes the list from Letterboxd. This cannot be undone!
+        NOTE: after deleting a list, the instance will become unusable. 
+        """
         if not util.yn("Are you sure you want to delete the list? This cannot be undone!"):
             return
         SESSION.request("POST", self.suburl_delete)
+        self.soup = None
 
-    def update_list(self, **kwargs):
-        """ Update information about the list e.g. description, tags. """
+    def update(self, show_changes=False, **kwargs):
+        """ Modify one or more attributes of the list, including entries.
+        It is called by methods which deal strictly with modifying entries,
+        namely replace, add and subtract. """
 
-        ## Replace any vars
-        new_attrs = self.data
-        for k, v in kwargs.items():
-            if k not in new_attrs.keys():
-                raise KeyError(f"Unknown key: {k} with value: {v}")
-            elif k == "list_id":
-                raise Exception("list_id cannot be modified")
-            new_attrs[k] = v
+        if any(unknown_keys := [k for k in kwargs if k not in self.data.keys()]):
+            raise KeyError(f"Unknown keys: {unknown_keys}")
 
-        ## Update 
-        # TODO IS THIS NECESSARY? ISN'T NEW_ATTRS ALREADY UPDATED_ATTRS?
-        current_attrs = self.data
-        updated_attrs = util.replace_dict(current_attrs, new_attrs)
+        new_attrs = {k:v if k not in kwargs else kwargs[k] for k,v in self.data.items()}
 
-        ## Convert data to post_data for request to update list on Letterboxd
-        post_data = self.make_post_data(updated_attrs)
+        if show_changes and 'entries' in new_attrs.keys():
+            self.__show_changes(new_attrs['entries'])
 
-        ## Make post request to update data
-        response = SESSION.request(
+        ## Convert the data into post_data for request to update list on Letterbox 
+        post_data = self.make_post_data(new_attrs)
+
+        # Make post request to update data
+        r = SESSION.request(
             "POST",
             suburl=self.save_url,
             data=post_data
         )
 
-        """ Ensure that user_defined_name (which is called by self.formatted_name)
-        is up to date, since it may have been changed with the postr request
-        if kwarg 'name' was passed to the method. 
-        """ 
-        if 'name' in kwargs:
-            self.user_defined_name = kwargs.pop('name')
+        ## Update user-defined name to allow loading to work if list has been renamed
+        if 'name' in new_attrs: 
+            self.user_defined_name = new_attrs['name']
 
         ## Make get request to update soup
         self.load()
 
     def clear(self):
-        """ Remove all films from the list. """
-        self.update_list(entries=[])
+        """ 
+        A -> []
+        Clears all entries in a list. """
+        self.update(entries=[])
 
-    def replace(self, *args):
-        """ A -> B. """
-        other = util.merge_lists([i.entries for i in args])
-        merged_others = self.__merge_entries(other, keep_notes=False)
-        self.update_list(entries=merged_others)
+    def replace(self, *args, show_changes=False):
+        """ 
+        A, B -> B        
+        Replace any existing entries with the passed list(s) of entries. """
+        
+        # Merge the replacement lists together
+        merged_others = self.__merge_entries(*args, keep_notes=False)
+        
+        # Update the list by replacing the current entries with the merged_others
+        self.update(entries=merged_others, show_changes=show_changes)
 
-    def merge(self, *args):
-        """ A, B -> A + B """
+    def append(self, *args, show_changes=False):
+        """ 
+        A, B -> A + B
+        Add to any existing entries with the passed list(s) of entries. """
         current = self.entries
-        other = util.merge_lists([i.entries for i in args])
-        merged_others = self.__merge_entries(other, keep_notes=False)
-        
-        final_pre_merge = [current, merged_others]
-        final = self.__merge_entries(final_pre_merge)   
-        self.update_list(entries=final)
-        
-    def diff(self, *args):
-        """ A, B -> A - B """
+        merged_others = self.__merge_entries(*args, keep_notes=False)
+
+        combined = self.__merge_entries(*[current, merged_others], keep_notes=True)
+        self.update(entries=combined, show_changes=show_changes)
+
+    def remove(self, *args, show_changes=False):
+        """
+        A, B -> A - B
+        Subtract passed list(s) of entries from any entries which exist in the list currently. """
         current = self.entries
-        other = util.merge_lists([i.entries for i in args])
-        merged_others = self.__merge_entries(other, keep_notes=False)
-        
+        merged_others = self.__merge_entries(*args, keep_notes=False)
+
+        # Subtract the merged_others (other entries) from the existing entries
         remaining = [i for i in current if i['filmId'] not in [j['filmId'] for j in merged_others]]
-        self.update_list(entries=remaining)
+
+        self.update(entries=remaining, show_changes=show_changes)
 
     """
     ** List Attributes **
@@ -536,12 +699,9 @@ class MyList(LetterboxdList):
     The information is more easily grabbed. However, it is possible to grab every necessesary attribute
     using the view-list soup alone (with the exception of the public status of the list)
     """ 
+
     @property
     def _id(self):
-        """ Returns the list_id
-        NOTE: the list_id cannot be set; it is assigned upon creation of the list. 
-        r-type: int
-        """
         return int(self.soup.find('input', attrs={'name': 'filmListId'}).get('value'))
 
     @property
@@ -563,12 +723,10 @@ class MyList(LetterboxdList):
     @property
     def description(self):
         description = self.soup.find('textarea', attrs={'name': 'notes'}).text
-        return description if description else ''
+        return '' if not description else description
 
     @property
     def entries(self):
-        """ Returns information for each film in the list.
-        r-type: list of dicts """
 
         def get_film_data(soup):
             """ Returns the data for an individual film in the entries.
@@ -589,7 +747,7 @@ class MyList(LetterboxdList):
         return entries
 
     """
-    ** Setter Methods **
+    ** Setter Methods
     These setter method should be utilised if you want to change a single setting
     Otherwise, it's easier and more efficient to use the update_values() method.
     """
@@ -601,7 +759,7 @@ class MyList(LetterboxdList):
             raise TypeError(f"Invalid type for value: {type(name)}. Must be str")
 
         # Make post request to update name
-        self.update_list(name=name)
+        self.update(name=name)
 
     @tags.setter
     def tags(self, tags, append=False):
@@ -616,7 +774,7 @@ class MyList(LetterboxdList):
         if append: tags = self.tags + tags
 
         # Make post request to update tags
-        self.update_list(tags=tags)
+        self.update(tags=tags)
 
     @public.setter
     def public(self, value):
@@ -632,7 +790,7 @@ class MyList(LetterboxdList):
             return
 
         # Make post request to update public/private status
-        self.update_list(public=value)
+        self.update(public=value)
 
     @ranked.setter
     def ranked(self, value):
@@ -648,7 +806,7 @@ class MyList(LetterboxdList):
             return
         
         # Make post request to update ranked/unranked status
-        self.update_list(ranked=value)
+        self.update(ranked=value)
 
     @description.setter
     def description(self, text, append=False):
@@ -664,7 +822,7 @@ class MyList(LetterboxdList):
         if append: text = self.description + text
 
         # Make post request to update description
-        self.update_list(description=text)
+        self.update(description=text)
 
     """
     ** Overloading comments methods 
@@ -678,32 +836,58 @@ class MyList(LetterboxdList):
         super().add_comment(comment)
 
 
+def get_film_names(film_ids):
+    """ Creates or edits a list used by the program which 
+    is then used by this function to determine the names which
+    correspond to the given ids. """
+
+    ## Try to ensure correct format of data
+    # If not list of dicts, change list into dicts
+    if not all([type(x) is dict for x in film_ids]):
+        if not all(type(x) is int for x in film_ids):
+            raise TypeError(f"Invalid input: {film_ids}. Expected list of dicts or list.")
+
+        # If list of ints, convert to entries format (list of dicts)
+        film_ids = [{'filmId': film_id} for film_id in film_ids]
+    
+    try:
+        temp_list = MyList(name="__TEMPLIST")
+    except:
+        try:
+            temp_list = MyList.new_list(
+                list_name=temp_list_name, 
+                description="Please do not delete me!",
+                public=False,
+                entries=film_ids
+                )
+        except:
+            raise Exception("Could not load or create list")
+    finally:
+        temp_list.update(entries=film_ids)
+
+    film_names = temp_list.get_film_names()
+    
+    ## Change temp_list back to being empty
+    temp_list.clear()
+
+    return film_names
+
+
 if __name__ == "__main__":
 
-    ## Testing code
-
-    # test_list = LetterboxdList("Hooptober 2020!", "thegarfofficial")
-    # test_list2 = LetterboxdList("top 100", "jameshealey")
-
-    # test_list = MyList("anti letterboxd 250 ranked")
-    # print(test_list.name)
-    # print(test_list.user_defined_name)
-    # print(test_list.description)
-    # print(test_list.tags)
-    # print(test_list.public)
-    # print(test_list.ranked)
-    # print(test_list.formatted_name)
-    # print(test_list.entries)
+    # steve_quick = LetterboxdList("Michael Adams' 20 Worst Films", "stevequick")
+    # print(steve_quick.data)
 
     test_list = MyList("test003")
-    # hooptober = LetterboxdList("Hooptober 2020!", "thegarfofficial")
-    steve_quick = LetterboxdList("Michael Adams' 20 Worst Films", "stevequick")
+    # print("old name:", test_list.name)
+    # test_list.name = "test003"
+    # print("new name:", test_list.name)
+    # print("new data:", test_list.data)
+    
 
+    # Get updated horror list
+    # from film_search import FilmSearch
+    # horror_list = MyList("Horror 2020")
+    # horror_update = FilmSearch(genre="Horror", year=2020, page_limit=None)
+    # horror_list.replace(horror_update(), show_changes=True)
 
-
-    # movie_m1 = MyList("Movie Masochism #1 (Complete)")
-    # movie_m2 = MyList("movie-masochism #2")
-    # anti_lb = MyList("Anti-Letterboxd 250 Ranked")
-
-    # test_list.merge(movie_m1, movie_m2)
-    # test_list.replace(hooptober)

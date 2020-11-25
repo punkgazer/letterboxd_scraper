@@ -7,7 +7,7 @@ import re
 
 # Debugging
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 
 # Local Imports
 from session import SESSION, make_soup
@@ -24,7 +24,7 @@ class FilmSearch():
         # Ensure valid data
         if year and decade:
             raise Exception("You cannot search by both decade and year!")  
-        if year and year not in range(SESSION.year_range):
+        if year and year not in range(*SESSION.year_range):
             raise ValueError(f"Invalid year: {year}")
         if decade and decade not in range(*SESSION.year_range, 10):
             raise ValueError(f"Invalid decade: {decade}")
@@ -100,8 +100,12 @@ class FilmSearch():
         """ Return a list of dictionaries containing film data for a single page.
         r-type: list of dicts """
         divs = [i.find('div') for i in soup.find_all('li', class_=['listitem', 'poster-container'])]
-        link_name_getter = lambda x: re.findall(r"/film/([\w\d:-]+)/", x)[0] # NOTE digits are necessesary e.g. /film/boat-2009/
-        films = [ {'filmId': int(i.get('data-film-id')), 'link': link_name_getter(i.get('data-film-link'))} for i in divs ]
+
+        # NOTE This is unused code for getting links
+        # link_name_getter = lambda x: re.findall(r"/film/([\w\d:-]+)/", x)[0] # NOTE digits are necessesary e.g. /film/boat-2009/
+        # films = [ {'filmId': int(i.get('data-film-id')), 'link': link_name_getter(i.get('data-film-link'))} for i in divs ]
+        
+        films = [ {'filmId': int(i.get('data-film-id'))} for i in divs ] 
         return films
 
     
