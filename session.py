@@ -7,10 +7,11 @@ import requests
 from bs4 import BeautifulSoup as bs
 import re
 import pendulum
+import json
 
 # Local Imports
 import util
-from exceptions import LoginException
+from exceptions import LoginException, LetterboxdException
 
 
 USER_DETAILS = util.load_json_data("user_details")
@@ -84,7 +85,34 @@ class LetterboxdSession(requests.Session):
         
         if not response.ok:
             response.raise_for_status()
+        
+        self.get_html_response_dict(response)
+
         return response
+
+    @staticmethod
+    def get_html_response_dict(response):
+        try:
+            message_dict = json.loads(response.text)
+        except:
+            return
+
+        if message_dict['result']:
+            return 
+        
+        # The keys that exist within the message that we want to print out when raising the Exception
+        error_msg_keys = [k for k in ('messages', 'errorCodes', 'errorFields') if k in message_dict.keys()]
+        
+        message = ''
+        for key in error_msg_keys:
+            message += f"\n{key}: "
+            while (values := message_dict[key]):
+                message += f"\n\t{values.pop(0)}"
+        
+        message = message.rstrip()
+
+        # Raise the Exception because the message_dict['result'] evaluated to false
+        raise LetterboxdException(message)
 
     @property
     def login_details(self):

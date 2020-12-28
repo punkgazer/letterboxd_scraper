@@ -16,6 +16,8 @@ from session import SESSION, make_soup
 import util
 from exceptions import LetterboxdException
 
+import itertools
+
 
 # TODO edit list to sort by x (e.g. film release date)
 
@@ -61,6 +63,11 @@ class LetterboxdList():
         if not self.entries:
             return 0
         return len(self.entries)
+
+    def __add__(self, other):
+        entries = self.entries
+        entries.update(other.entries)
+        return {'filmId': x for x in set(entries.values())}
         
     def get_formatted_name(self):
         """ Produces a formatted_name based on self.name
@@ -239,7 +246,6 @@ class LetterboxdList():
 
     @property
     def num_comments(self):
-        # BUG: does not work!
         """ Returns the number of comments a list has received, not included any that have been removed. """
         if not self.comments:
             return 0
@@ -450,7 +456,7 @@ class MyList(LetterboxdList):
 
         ## Add list_name and empty_id
         # (the id_ will be generated automatically when making the list creation request)
-        list_data['list_name'] = name
+        list_data['name'] = name
         list_data['list_id'] = ''
 
         ## Convert the list_data into values which can be passed to a request
@@ -851,17 +857,19 @@ def get_film_names(film_ids):
         film_ids = [{'filmId': film_id} for film_id in film_ids]
     
     try:
-        temp_list = MyList(name="__TEMPLIST")
+        temp_list = MyList(name="test003")
     except:
         try:
-            temp_list = MyList.new_list(
-                list_name=temp_list_name, 
+            temp_list = MyList.new(
+                name=temp_list_name, 
                 description="Please do not delete me!",
                 public=False,
                 entries=film_ids
                 )
         except:
             raise Exception("Could not load or create list")
+    else:
+        print("Successfully loaded temp_list")
     finally:
         temp_list.update(entries=film_ids)
 
@@ -870,24 +878,70 @@ def get_film_names(film_ids):
     ## Change temp_list back to being empty
     temp_list.clear()
 
-    return film_names
+    return film_names 
 
 
 if __name__ == "__main__":
-
+    pass
     # steve_quick = LetterboxdList("Michael Adams' 20 Worst Films", "stevequick")
     # print(steve_quick.data)
 
-    test_list = MyList("test003")
+    # test_list = MyList("test003")
     # print("old name:", test_list.name)
     # test_list.name = "test003"
     # print("new name:", test_list.name)
     # print("new data:", test_list.data)
-    
 
-    # Get updated horror list
+    ## --- Get updated horror list ---
     # from film_search import FilmSearch
     # horror_list = MyList("Horror 2020")
     # horror_update = FilmSearch(genre="Horror", year=2020, page_limit=None)
     # horror_list.replace(horror_update(), show_changes=True)
+
+    ## --- Create new horror list ---
+    # from film_search import FilmSearch
+
+    # horror_list = MyList.new(
+    #     name="Horror ajshajosgho", 
+    #     tags=["horror", "2021", "2021 horror", "horror 2021", "complete", "full"],
+    #     ranked=True,
+    #     public=False,
+    #     description="Horror films planned to be released in the year 2021.",
+    #     entries=FilmSearch(genre="Horror", year=2021, page_limit=None).__call__()
+    #     )
+
+    ## --- Create new romance list ---
+    from film_search import FilmSearch
+
+    # romance_list = MyList.new(
+    #     name="Romance 2020",
+    #     tags = ["romance", "2020", "2020 romance", "romance 2020", "complete", "full"],
+    #     public=True,
+    #     description="Romance films released (or planned to be released) in the year of 2020.",
+    #     entries=FilmSearch(genre="Romance", year=2020, page_limit=None).__call__()
+    # )
+
+    ## --- Get crossover list ---
+
+    horror_entries = FilmSearch(genre="Horror", year=2020, page_limit=None).__call__()
+    print(horror_entries)
+    quit()
+    
+    romance_entries = FilmSearch(genre="Romance", year=2020, page_limit=None).__call__()
+
+    def alternate_combine(list1, list2):
+        return [x for x in itertools.chain.from_iterable(itertools.zip_longest(list1, list2)) if x]
+
+    full_entries = alternate_combine(horror_entries.values(), romance_entries.values())
+
+    horror_romance_crossover = MyList.new(
+        name="Horror-Romance 2020 test",
+        tags = ["romantic horror", "horror romance", "2020", "date movie", "crossover", "complete", "full"],
+        public=False,
+        ranked=True,
+        description="Horror-Romance films released (or planned to be released) in the year of 2020.",
+        entries=full_entries
+    )
+
+
 
