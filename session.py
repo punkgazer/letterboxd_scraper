@@ -8,13 +8,16 @@ from bs4 import BeautifulSoup as bs
 import re
 import pendulum
 import json
+from types import SimpleNamespace
 
 # Local Imports
 import util
 from exceptions import LoginException, LetterboxdException
 
+## FILE NAMES
+FN_USER_DETAILS = "user_details"
 
-USER_DETAILS = util.load_json_data("user_details")
+# USER_DETAILS = util.load_json_data("user_details")
 USER_AGENT = util.load_json_data("user_agent")
 
 def make_soup(request):
@@ -30,17 +33,18 @@ class LetterboxdSession(requests.Session):
     def __init__(self):
         super().__init__()
 
-        # Add User Agent
+        ## Add User Agent
         self.headers.update(USER_AGENT)
 
-        # Set CSRF token
+        ## Set CSRF token
         token = self.__get_token()
         self.cookie_params = {'__csrf': token}
 
-        # Login details
+        ## Login details
         self.logged_in = False
-        self.username = USER_DETAILS['username']
-        self.password = USER_DETAILS['password']
+
+        # If user details not found, get from user
+        self.login_details = self.get_user_details()
 
         ## Search Options & Available filters
         response = self.request("GET", f"{self.username}/films/")
@@ -57,13 +61,77 @@ class LetterboxdSession(requests.Session):
     def __repr__(self):
         return f"<{type(self).__name__}>\nusername: {self.username}\nlogged_in: {self.logged_in}"
 
+    @property
+    def username(self):
+        return self.login_details.username
+
+    @property
+    def password(self):
+        return self.login_details.password
+
+    def get_user_details(self):
+        """ 
+        Makes use of get_details_from_file and get_details_from_user functions.
+        Returns the user's data
+        r-type: SimpleNamespace.
+        """
+        if not (user_details := self.get_details_from_file()):
+            self.get_details_from_user()
+            user_details = self.get_details_from_file()
+        return user_details
+
+    @staticmethod
+    def get_details_from_file():
+        """
+        Gets the user's details form the user details json file.
+        r-type: SimpleNamespace.
+        """
+        user_details = util.load_json_data(FN_USER_DETAILS)
+        assert list(user_details.keys()) == ["username", "password"]
+
+        return SimpleNamespace(**user_details)
+
+    def get_details_from_user(self):
+        """ 
+        If the details are empty, this func is called.
+        
+        It prompts the user for their Letterboxd username and password,
+        which is required to log in and, for example, manipulate the user's lists.
+
+        r-type: None (rather, func is called to override details)
+        """
+        while True:
+            print("\nPlease enter your details\n")
+            username = input("Letterboxd username: ")
+            password = input("Letterboxd password: ")
+
+            if not all([username, password]):
+                print("Please provide both a username and password!")
+                continue
+
+            # Confirm details with user
+            if not util.yn(f"Confirm\nUsername:{username}\nPassword:{password}\n"):
+                continue
+            
+            new_details = {'username': username, 'password': password}
+            self.override_details(new_details)
+            return
+
+    @staticmethod
+    def override_details(new_details):
+        """ Overrides any data in the user details file, with new_details. """
+        with open(FN_USER_DETAILS) as jf:
+            json.dump(new_details, jf)        
+
     def __call__(self):
         """ Login to Letterboxd if not already. """
+
+        # Already logged in - __call__ func not needed
         if self.logged_in:
             print("Already logged in")
-        else:
-            self.__login()
-            self.logged_in = True
+            return
+            
+        self.__login()
 
     def request(self, method, suburl='', **kwargs):
         """ 
@@ -72,9 +140,17 @@ class LetterboxdSession(requests.Session):
         And to include the __CSRF token if it's a POST request. 
         """
         if method == "POST":
-            if not kwargs.get("data"):
+
+            # No data passed. Create default data
+            if not (data := kwargs.get("data")):
                 kwargs['data'] = self.cookie_params
+
             else:
+                # If data type is SimpleNamespace, convert to dict
+                if isinstance(data, SimpleNamespace): 
+                    kwargs['data'] = {i:j for i,j in data.__dict__.items()}
+                
+                # Add default data to passed data
                 kwargs['data'] = dict(self.cookie_params, **kwargs['data'])
 
         response =  super().request(
@@ -113,11 +189,6 @@ class LetterboxdSession(requests.Session):
 
         # Raise the Exception because the message_dict['result'] evaluated to false
         raise LetterboxdException(message)
-
-    @property
-    def login_details(self):
-        """ Convert username and password to dict for passing it as data to a request. """
-        return {"username": self.username, "password": self.password}
 
     def __get_token(self):
         """ Get the __csrf token and pass its value to an instance variable.
@@ -183,11 +254,9 @@ SESSION()
 
 
 if __name__ == "__main__":
+    pass
     # Test code
     # SESSION.request("GET", "film/black-swan/")
-
     # SESSION.request("GET", "film/thisojaifasfj/")
-    # print(SESSION.filters_dict)
-
-    response = SESSION.request("GET", "lostinstyle/list/test003/")
-    soup = make_soup(response)
+    # response = SESSION.request("GET", "lostinstyle/list/test003/")
+    # soup = make_soup(response)

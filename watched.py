@@ -32,7 +32,6 @@ class Watched():
         """
         Creates an object associated with a particular Letterboxd username.
         Keyword Arguments:
-
         username(str):
             Constraints :-
             - must be valid Letterboxd username
@@ -44,31 +43,23 @@ class Watched():
     def __call__(self, **kwargs):
         """
         Returns a list of film_ids that correspond with the given search parameters.
-
         If not parameters are given, all film_ids in the watched_list will be returned
-
         Keyword Arguments:
-
             rated_only(bool)
-
             year(str or None):
                 Options :-
                 - 4 digits e.g. 1975
                 - 4 digits + s e.g. 1970s # functions as decade
-
             genre(str or None):
                 Contraints :-
                 - must be in genre_list
-
             service(str or None):
                 Constraints :-
                 - must be in service_list
-
             rating(float or None):
                 Constraints :-
                     - must be in inclusive range (0.5, 5)
                     - decimal must be 0.5 or 0, like Letterboxd ratings
-
             sort_by(str):
                 How do you want the results sorted?
                 Constraints :-
@@ -86,7 +77,6 @@ class Watched():
                 - entry-rating-lowest
                 - shortest (film length)
                 - longest
-
             filters(list):
                 Constraints :-
                 - must be in SESSION's filters_dict
@@ -98,7 +88,6 @@ class Watched():
                 - show-shorts OR hide-shorts
                 - hide-docs
                 - hide-unreleased
-
         Example suburl in full:
         - username/films/ratings/   year(or decade)/2015/genre/horror/on/amazon-gbr/by/rating
         """
@@ -240,7 +229,6 @@ class Watched():
         Given a tuple of filters (args),
         merges all into a valid filters string that can 
         subsequently be passed as a cookie to a search request
-
         Parameters:
         - Filters
             (e.g. show-watched)
@@ -271,5 +259,3 @@ if __name__ == "__main__":
         username="lucindaj",
         filters=["show-reviewed"]
         )
-    # results = watched(search_for="ratings", rating=1.0, filters=("hide-liked", "show-reviewed", "hide-shorts"))
-    # print(results)

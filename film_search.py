@@ -7,10 +7,12 @@ import re
 
 # Debugging
 import logging
+from tqdm import tqdm
 logging.basicConfig(level=logging.WARNING)
 
 # Local Imports
 from session import SESSION, make_soup
+import util
 
 class FilmSearch():
     """ Search for all the films (unless a page limit is specificed) for
@@ -42,7 +44,6 @@ class FilmSearch():
     def __call__(self):
         """ Return film data as a list of dicts, each dict containing 'id' and 'link'
         r-type: list of dicts """
-        page_num = 0
         suburl = self.suburl
         film_data = []
 
@@ -50,16 +51,31 @@ class FilmSearch():
         pages_to_scrape = self.num_pages if not self.page_limit else min(self.num_pages, self.page_limit)
 
         logging.debug(f"Scraping data\nGenre: {self.genre}\nDecade: {self.decade}\nYear: {self.year}\n Pages {pages_to_scrape}")
-        
-        ## Commence scraping
-        while page_num < pages_to_scrape:
-            page_num += 1
+
+        def scrape_page(page_num):
             logging.debug(f"Attempting to scrape data from page {page_num}")
             request = SESSION.request("GET", f"{suburl}page/{page_num}/")
             soup = make_soup(request) 
-            film_data += self.get_page_of_films(soup)
+            return self.get_page_of_films(soup)
+        
+        ## Commence scraping
+        [film_data.extend(scrape_page(i)) for i in tqdm(range(1, pages_to_scrape+1))]            
 
         return film_data
+
+    def __add__(self, other):
+        result = self() + other()
+        return util.list_of_unique_dicts(result)
+
+    def __sub__(self, other):
+        entries = self()
+        oth_ent = other()
+        return [i for i in entries if i not in oth_ent]
+
+    def merge(self, other):
+        entries = self()
+        oth_ent = other()
+        return [i for i in entries if i in oth_ent]
 
     @property
     def suburl(self):
@@ -111,6 +127,7 @@ class FilmSearch():
     
 if __name__ == "__main__":
 
-    F = FilmSearch(decade=1910, genre='horror', page_limit=None)
+    F = FilmSearch(decade=1890, genre='horror', page_limit=None)
     data = F()
-    
+
+    print(data)

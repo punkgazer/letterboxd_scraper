@@ -2,31 +2,21 @@
     For working with Letterboxd lists. 
         - LetterboxdList (general class for lists on Letterboxd)
         - MyList (subclass for lists owned by the user)
-
     NOTE: throughout this module, the word 'entries' 
     is used to refer to films within a list. 
 """
 
-# Imports
+## Imports
 import re
 import pendulum
 
-# Local Imports
+## Local Imports
 from session import SESSION, make_soup
 import util
 from exceptions import LetterboxdException
 
-import itertools
-
-
-# TODO edit list to sort by x (e.g. film release date)
-
-# BUG forward/back(?) slashes in name result in 404 not found
-
-## TODO __show_changes()
-    # BUG: prints out duplicates in comment (not sure why - ids are sets. Possibly multiple films with same name?)
-    # TODO: print links to films rather than just names
-    # TODO: order films alphabetically
+# Sorting
+from film_info import FilmInfo
 
 
 class LetterboxdList():
@@ -64,10 +54,44 @@ class LetterboxdList():
             return 0
         return len(self.entries)
 
+    @staticmethod
+    def remove_notes(entries):
+        """ Removes notes from a given list of entries. """
+        return [{k:v for k,v in i.items() if k=="filmId"} for i in entries]
+
     def __add__(self, other):
-        entries = self.entries
-        entries.update(other.entries)
-        return {'filmId': x for x in set(entries.values())}
+        """ Adds together the instance's entries with another list of entries.
+        Returns the result.
+
+        Params:
+            - other (entries; list of dicts)
+        r-type: list of dicts (typical entries format). """
+        
+        # Get entries to add/combine
+        entries = self.remove_notes(self.entries)
+        oth_ent = self.remove_notes(other.entries)
+
+        # Sum the two entries lists
+        result = entries + oth_ent
+        
+        # Ensure unique values
+        return util.list_of_unique_dicts(result)
+
+    def __sub__(self, other):
+        """ Subtracts an other list of entries from the instance's. 
+        Returns the result
+
+        Params:
+            - other (entries; list of dicts)
+        r-type: list of dicts (typical entries format)
+        """
+
+        # Get entries to add/combine
+        entries = self.remove_notes(self.entries)
+        oth_ent = self.remove_notes(other.entries)
+
+        # Every item in entries if doesn't appear in other entries list
+        return [i for i in entries if i not in oth_ent]
         
     def get_formatted_name(self):
         """ Produces a formatted_name based on self.name
@@ -284,23 +308,23 @@ class LetterboxdList():
     """
     ** Film names **
     """
-    def get_page_of_film_names(self, page_num):
-        """ Returns a dictionary 
-            key: film_id
-            value: film_name
-        for all the films on that page of the list. 
-            
-        Example: {film_id: film_name}
+
+    # @staticmethod
+    # def extract_film_link(data_target_link):
+    #     pattern = r"/film/([\w-]+)/"
+    #     try:
+    #         return re.findall(pattern, data_target_link)[0]
+    #     except IndexError:
+    #         raise IndexError("Could not extract link!")
+
+    def get_film_names_links(self):
+        """ 
+        Returns each id in the film list together with the corresponding film_name
+        Retains list order
+        r-type: dict
+
+        Example: {42380: 'Seed', 36539: 'Stoic', 50975: 'Sweet Movie',...}
         """
-        response = SESSION.request("GET", f"{self.view_list}page/{page_num}/")
-        soup = make_soup(response)
-
-        ul = soup.find('ul', class_='film-list')
-        page_results = {int(li.find('div').get('data-film-id')): li.find('img').get('alt') for li in ul.find_all('li')} 
-        return page_results
-
-    def get_film_names(self):
-        """ Returns each id in the film list together with the corresponding film_name. """
 
         response = SESSION.request("GET", self.view_list)
         soup = make_soup(response)
@@ -321,16 +345,32 @@ class LetterboxdList():
 
         return results
 
+    def get_page_of_film_names(self, page_num):
+        """ Returns a dictionary 
+            key: film_id
+            value: film_name
+        for all the films on that page of the list. 
+            
+        Example: {film_id: film_name}
+        """
+        response = SESSION.request("GET", f"{self.view_list}page/{page_num}/")
+        soup = make_soup(response)
+
+        ul = soup.find('ul', class_='film-list')
+        page_results = {
+            int(li.find('div').get('data-film-id')): 
+                {'name': li.find('img').get('alt'), 'link': li.find('div').get('data-target-link')} 
+                for li in ul.find_all('li')
+            } 
+        return page_results
 
 class MyList(LetterboxdList):
     """ Subclass for Letterboxd Lists owned by the user.
-    
+
     To Create a new list:
         use the new_list() constructor
     Otherwise, MyList expects list_name to already exist
-
     # TODO Copy List Constructor
-
     # Create
     # Delete
     # Edit
@@ -344,7 +384,7 @@ class MyList(LetterboxdList):
         # Add
         # Delete
     """
-    
+
     # This url is used when making the request to make changes to a list
     save_url = 's/save-list'
 
@@ -369,7 +409,6 @@ class MyList(LetterboxdList):
     def make_post_data(data):
         """ Converts data to a dictionary that can be passed directly
         a save-list request.
-
         Parameters:
         - data (dict)
         
@@ -419,7 +458,6 @@ class MyList(LetterboxdList):
     def new(cls, name, **kwargs):
         """
         :: Alternative Constructor ::
-
         Creates a new list, as opposed to initialising this class
         regularly, which expects the name passed to already exist as a list on Letterboxd.
         This method makes a request first to create the list
@@ -478,20 +516,16 @@ class MyList(LetterboxdList):
     def copy(cls, name, other):
         """ 
         :: Alternative Constructor ::
-
         Given the name you want for the copied list,
         and another list from which the entries can be extracted,
         Returns the new resulting list.
-
         Example:
         If you passed 'turtles' fav_films list, this method would
         return a new list called turtles, with the same films in it
         as the fav_films list.
-
         Actions:
         Calls the other alternative constructor to create a new list
         with a new name, but the existing entries of the given, existing list.
-
         Parameters:
         - name (str) - the name of the new copy list
         - other (LetterboxdList or MyList) - a LBList object from which the entries
@@ -547,7 +581,6 @@ class MyList(LetterboxdList):
         
         Parameters:
             new (list of dicts) - an entries list
-
         Actions:
             Comments about changes to list entries just before making the change
         """
@@ -573,11 +606,11 @@ class MyList(LetterboxdList):
         removed_ids = old - new
 
         ## Get the respective names
-        added_names = get_film_names(added_ids).values()
-
-        current_film_names = self.get_film_names()
-        removed_names = [current_film_names[k] for k in removed_ids]
-
+        current_name_links = self.get_film_names_links()
+        
+        removed_name_links = [current_name_links[k] for k in removed_ids]
+        added_name_links = list(get_film_name_links(added_ids).values())
+        
         bolden = lambda x: f"<strong>{x}</strong>"
         comment = ''
 
@@ -587,13 +620,13 @@ class MyList(LetterboxdList):
         # Add removed films to comment string
         if removed_ids:
             comment += f"{bolden('Removed')}:"
-            comment += ''.join([f"\n- {v}" for v in removed_names])
+            comment += ''.join([f"\n- <a href=\"{v['link']}\">{v['name']}</a>" for v in removed_name_links])
             comment += "\n\n"
 
         # Add added films to comment string
         if added_ids:
             comment += f"{bolden('Added')}:"
-            comment += ''.join([f"\n- {v}" for v in added_names])
+            comment += ''.join([f"\n- <a href=\"{v['link']}\">{v['name']}</a>" for v in added_name_links])
 
         # Ensure no trailing whitespace
         comment = comment.strip()
@@ -830,19 +863,8 @@ class MyList(LetterboxdList):
         # Make post request to update description
         self.update(description=text)
 
-    """
-    ** Overloading comments methods 
-    """
-    def add_comment(self, comment):
-        """ Checks against the edge case to ensure that list is public,
-        before calling regular parent method to add the passed comment to the list 
-        """
-        if not self.public:
-            raise LetterboxdException("Cannot add comment to private list!")
-        super().add_comment(comment)
 
-
-def get_film_names(film_ids):
+def get_film_name_links(film_ids):
     """ Creates or edits a list used by the program which 
     is then used by this function to determine the names which
     correspond to the given ids. """
@@ -873,75 +895,12 @@ def get_film_names(film_ids):
     finally:
         temp_list.update(entries=film_ids)
 
-    film_names = temp_list.get_film_names()
+    film_name_links = temp_list.get_film_names_links()
     
     ## Change temp_list back to being empty
     temp_list.clear()
 
-    return film_names 
-
-
-if __name__ == "__main__":
-    pass
-    # steve_quick = LetterboxdList("Michael Adams' 20 Worst Films", "stevequick")
-    # print(steve_quick.data)
-
-    # test_list = MyList("test003")
-    # print("old name:", test_list.name)
-    # test_list.name = "test003"
-    # print("new name:", test_list.name)
-    # print("new data:", test_list.data)
-
-    ## --- Get updated horror list ---
-    # from film_search import FilmSearch
-    # horror_list = MyList("Horror 2020")
-    # horror_update = FilmSearch(genre="Horror", year=2020, page_limit=None)
-    # horror_list.replace(horror_update(), show_changes=True)
-
-    ## --- Create new horror list ---
-    # from film_search import FilmSearch
-
-    # horror_list = MyList.new(
-    #     name="Horror ajshajosgho", 
-    #     tags=["horror", "2021", "2021 horror", "horror 2021", "complete", "full"],
-    #     ranked=True,
-    #     public=False,
-    #     description="Horror films planned to be released in the year 2021.",
-    #     entries=FilmSearch(genre="Horror", year=2021, page_limit=None).__call__()
-    #     )
-
-    ## --- Create new romance list ---
-    from film_search import FilmSearch
-
-    # romance_list = MyList.new(
-    #     name="Romance 2020",
-    #     tags = ["romance", "2020", "2020 romance", "romance 2020", "complete", "full"],
-    #     public=True,
-    #     description="Romance films released (or planned to be released) in the year of 2020.",
-    #     entries=FilmSearch(genre="Romance", year=2020, page_limit=None).__call__()
-    # )
-
-    ## --- Get crossover list ---
-
-    horror_entries = FilmSearch(genre="Horror", year=2020, page_limit=None).__call__()
-    print(horror_entries)
-    quit()
-    
-    romance_entries = FilmSearch(genre="Romance", year=2020, page_limit=None).__call__()
-
-    def alternate_combine(list1, list2):
-        return [x for x in itertools.chain.from_iterable(itertools.zip_longest(list1, list2)) if x]
-
-    full_entries = alternate_combine(horror_entries.values(), romance_entries.values())
-
-    horror_romance_crossover = MyList.new(
-        name="Horror-Romance 2020 test",
-        tags = ["romantic horror", "horror romance", "2020", "date movie", "crossover", "complete", "full"],
-        public=False,
-        ranked=True,
-        description="Horror-Romance films released (or planned to be released) in the year of 2020.",
-        entries=full_entries
-    )
+    return film_name_links 
 
 
 
